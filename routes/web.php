@@ -32,6 +32,7 @@ Route::middleware('auth')->group(function () {
 
     // User Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/pekerjaan', [DashboardController::class, 'pekerjaan'])->name('pekerjaan.index');
 
     // Chat Routes
     Route::post('/conversations/start', [ChatController::class, 'startConversation'])->name('conversations.start');

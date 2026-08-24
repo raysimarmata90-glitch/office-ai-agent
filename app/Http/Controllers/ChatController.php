@@ -93,6 +93,12 @@ class ChatController extends Controller
             'step_number' => $conversation->current_step,
         ]);
 
+        // Update conversation title with first user message (smart title)
+        if ($conversation->current_step === 1 && $conversation->messages()->where('sender_type', 'user')->count() === 1) {
+            $title = $this->generateConversationTitle($validated['message']);
+            $conversation->update(['title' => $title]);
+        }
+
         // Build context for agent
         $context = [
             'user_id' => auth()->id(),
@@ -499,6 +505,58 @@ class ChatController extends Controller
         return preg_match('/\b(prioritas|prioritas utama)\b.*\b(saat ini|sekarang)\b/iu', $content) === 1;
     }
 
+    /**
+     * Generate smart conversation title from user's first message
+     */
+    private function generateConversationTitle(string $message): string
+    {
+        $message = trim($message);
+        
+        // Limit to reasonable length
+        $maxLength = 50;
+        
+        // Remove common prefixes
+        $message = preg_replace('/^(hai|halo|hi|hello|saya|aku|mau|ingin|perlu)\s+/iu', '', $message);
+        
+        // If message contains specific keywords, extract them
+        if (preg_match('/(?:proyek|projek|project)\s+([\p{L}\d][\p{L}\d ._-]{0,40})/iu', $message, $matches)) {
+            return 'Proyek: ' . $this->truncateTitle($matches[1], $maxLength - 9);
+        }
+        
+        if (preg_match('/(?:membuat|mengembangkan|membangun|coding|develop)\s+([\p{L}\d][\p{L}\d ._-]{0,40})/iu', $message, $matches)) {
+            return $this->truncateTitle($matches[1], $maxLength);
+        }
+        
+        // Extract first meaningful sentence or phrase
+        if (mb_strlen($message) <= $maxLength) {
+            return ucfirst($message);
+        }
+        
+        return $this->truncateTitle($message, $maxLength);
+    }
+
+    /**
+     * Truncate title intelligently at word boundary
+     */
+    private function truncateTitle(string $text, int $maxLength): string
+    {
+        $text = trim($text);
+        
+        if (mb_strlen($text) <= $maxLength) {
+            return ucfirst($text);
+        }
+        
+        // Try to cut at word boundary
+        $truncated = mb_substr($text, 0, $maxLength);
+        $lastSpace = mb_strrpos($truncated, ' ');
+        
+        if ($lastSpace !== false && $lastSpace > $maxLength * 0.7) {
+            $truncated = mb_substr($truncated, 0, $lastSpace);
+        }
+        
+        return ucfirst(rtrim($truncated, '.,;:!?')) . '...';
+    }
+
     public function getMessages(Conversation $conversation)
     {
         // Ensure user owns this conversation
@@ -526,6 +584,7 @@ class ChatController extends Controller
         // Delete conversation
         $conversation->delete();
 
+        // Redirect to create new conversation (like going home)
         return redirect()->route('dashboard')->with('success', 'Percakapan berhasil dihapus.');
     }
 }

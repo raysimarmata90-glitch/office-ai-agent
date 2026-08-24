@@ -87,26 +87,73 @@
 
                 <!-- Navigation -->
                 <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto custom-scrollbar">
-                    <a href="{{ route('dashboard') }}"
-                        class="flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors {{ request()->routeIs('dashboard') ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
-                        <i class="fas fa-home w-5 text-center mr-3"></i>
-                        <span>Dashboard</span>
-                    </a>
-
                     <form method="POST" action="{{ route('conversations.start') }}">
                         @csrf
                         <input type="hidden" name="department_id" value="{{ auth()->user()->department_id }}">
                         <button type="submit"
-                            class="w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors {{ request()->routeIs('chat.*') ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
-                            <i class="fas fa-comments w-5 text-center mr-3"></i>
+                            class="w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors text-gray-700 hover:bg-gray-100">
+                            <i class="fas fa-plus w-5 text-center mr-3"></i>
                             <span>Chat Baru</span>
                         </button>
                     </form>
 
+                    <a href="{{ route('pekerjaan.index') }}"
+                        class="flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors {{ request()->routeIs('pekerjaan.*') ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
+                        <i class="fas fa-briefcase w-5 text-center mr-3"></i>
+                        <span>Pekerjaan Saya</span>
+                    </a>
+
+                    <!-- Conversations History -->
                     <div class="pt-6">
                         <p class="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                             Riwayat
                         </p>
+                        @php
+                            $userConversations = auth()->user()->conversations()
+                                ->with(['messages' => function($query) {
+                                    $query->latest()->limit(1);
+                                }])
+                                ->whereHas('messages', function($query) {
+                                    $query->where('sender_type', 'user');
+                                })
+                                ->latest('updated_at')
+                                ->take(10)
+                                ->get();
+                        @endphp
+                        
+                        @if($userConversations->count() > 0)
+                            <div class="space-y-1">
+                                @foreach($userConversations as $conv)
+                                    <div class="group relative">
+                                        <a href="{{ route('chat.show', $conv->id) }}"
+                                            class="flex items-start px-4 py-2.5 text-sm rounded-lg transition-colors hover:bg-gray-100 {{ request()->route('id') == $conv->id ? 'bg-gray-100' : '' }}">
+                                            <i class="fas fa-message w-5 text-center mr-3 text-gray-500 mt-0.5 flex-shrink-0"></i>
+                                            <div class="flex-1 min-w-0 pr-6">
+                                                <p class="text-gray-900 truncate font-medium text-sm mb-0.5">{{ $conv->title }}</p>
+                                                @if($conv->messages->isNotEmpty())
+                                                    <p class="text-xs text-gray-500 truncate">
+                                                        {{ Str::limit($conv->messages->first()->content, 35) }}
+                                                    </p>
+                                                @endif
+                                            </div>
+                                        </a>
+                                        <form method="POST" action="{{ route('conversations.destroy', $conv->id) }}"
+                                            class="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onsubmit="return confirm('Apakah Anda yakin ingin menghapus percakapan ini?');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit"
+                                                class="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                                                title="Hapus percakapan">
+                                                <i class="fas fa-trash-alt text-xs"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <p class="px-4 text-xs text-gray-500 italic">Belum ada percakapan</p>
+                        @endif
                     </div>
                 </nav>
 
@@ -136,34 +183,8 @@
 
         <!-- Main Content Area with Left Padding for Sidebar -->
         <div class="lg:pl-[248px]">
-            <!-- Fixed Navbar -->
-            <header
-                class="fixed top-0 right-0 left-0 lg:left-[248px] h-16 bg-white border-b border-gray-200 shadow-sm z-30">
-                <div class="h-full px-5 lg:px-8 flex items-center justify-between">
-                    <!-- Mobile Menu Button -->
-                    <button class="lg:hidden text-gray-600 hover:text-gray-900">
-                        <i class="fas fa-bars text-xl"></i>
-                    </button>
-
-                    <!-- Page Title -->
-                    <div class="flex items-center space-x-4">
-                        <h1 class="text-lg font-semibold text-gray-900">@yield('page-title', 'Dashboard')</h1>
-                    </div>
-
-                    <!-- Right Side -->
-                    <div class="flex items-center space-x-4">
-                        @if (auth()->user()->department)
-                            <span class="hidden sm:inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium"
-                                style="background-color: {{ auth()->user()->department->color }}20; color: {{ auth()->user()->department->color }};">
-                                <i class="fas fa-building mr-2"></i>{{ auth()->user()->department->name }}
-                            </span>
-                        @endif
-                    </div>
-                </div>
-            </header>
-
             <!-- Main Content -->
-            <main class="pt-16 min-h-screen">
+            <main class="min-h-screen">
                 @if (session('success'))
                     <div class="mx-5 lg:mx-8 mt-6">
                         <div

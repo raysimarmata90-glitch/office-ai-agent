@@ -70,7 +70,7 @@ Hapus
 .att-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .att{display:inline-flex;align-items:center;gap:6px;background:var(--line3);border-radius:8px;padding:4px 9px;font-size:11.5px;color:var(--muted)}
 .att button{border:none;background:transparent;cursor:pointer;color:var(--muted2);font-size:13px;line-height:1;padding:0}
-.prog{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--muted2);margin-bottom:9px}
+.chat-err{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--blok-fg);background:var(--blok-bg);border-radius:10px;padding:9px 12px;margin-bottom:9px}
 .typing{display:inline-flex;gap:4px;align-items:center}
 .typing i{width:6px;height:6px;border-radius:50%;background:var(--muted3);display:block;animation:bl 1.3s infinite}
 .typing i:nth-child(2){animation-delay:.18s}
@@ -82,6 +82,12 @@ Hapus
 </style>
 @endpush
 
+@php($pesanAiTerakhir = $conversation?->messages->where('sender_type', 'ai')->last())
+@php($metaAwal = $pesanAiTerakhir?->metadata ?? \App\Http\Controllers\ChatController::metadataAwal())
+@php($opsiAwal = [
+    'options' => ($metaAwal['has_options'] ?? false) ? ($metaAwal['options'] ?? []) : [],
+    'question_type' => $metaAwal['question_type'] ?? null,
+])
 @section('content')
 <div class="chat-wrap">
 <div class="msgs" id="messagesContainer">
@@ -119,10 +125,7 @@ INAai Agent
 @if($conversation?->isActive() ?? true)
 <div class="composer-zone">
 <div class="chat-col">
-<div class="prog" id="questionProgress" style="display:none">
-<span id="progressText">1 of 1</span>
-<button type="button" class="btn btn-sm" id="skipButton">Skip</button>
-</div>
+<div class="chat-err" id="chatError" role="alert" style="display:none"></div>
 <div class="opts" id="quickOptions" style="display:none"></div>
 <form id="messageForm">
 @csrf
@@ -154,25 +157,26 @@ INAai Agent
 
 @push('script')
 <script>
+/* Percakapan bisa belum tersimpan (layar "Chat Baru"): id diisi setelah pesan pertama. */
 let conversationId = {{ $conversation?->id ?? 'null' }};
 const urlMulai = @json(route('chat.mulai'));
 const urlKirim = function () { return '/conversations/' + conversationId + '/messages'; };
+
+/* Pilihan cepat datang dari server (metadata pesan AI), bukan ditebak di klien. */
+const opsiAwal = @json($opsiAwal);
+
 const messagesContainer = document.getElementById('messagesContainer');
 const messageList = document.getElementById('messageList');
 const messageForm = document.getElementById('messageForm');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
 const quickOptions = document.getElementById('quickOptions');
-const questionProgress = document.getElementById('questionProgress');
-const progressText = document.getElementById('progressText');
-const skipButton = document.getElementById('skipButton');
+const chatError = document.getElementById('chatError');
 const attachBtn = document.getElementById('attachBtn');
 const attachInput = document.getElementById('attachInput');
 const attList = document.getElementById('attList');
 const voiceBtn = document.getElementById('voiceBtn');
 
-let currentQuestionIndex = 0;
-let totalQuestions = 0;
 let lampiran = [];
 
 scrollToBottom();
@@ -185,228 +189,64 @@ function escapeHtml(value) {
 return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
 }
 
-function optionsForQuestion(content) {
-    const question = content.toLowerCase();
+/* Saringan ringan di klien; validasi sebenarnya tetap di server. */
+function jawabanBermakna(value) {
+const normal = String(value).trim();
+if (normal.length < 2) return false;
+const huruf = (normal.match(/[A-Za-zÀ-ÿ]/g) || []).join('');
+const alnum = normal.replace(/[^A-Za-zÀ-ÿ0-9]/g, '');
+if (alnum.length < 2) return false;
+if (huruf.length === 0) return /^[0-9]+$/.test(alnum);
+return true;
+}
 
-    if (/(jenis|tipe|kategori).*proposal|proposal.*(jenis|tipe|kategori)/i.test(question)) {
-        return [
-            'Business Proposal',
-            'Project Proposal',
-            'Research Proposal',
-            'Event Proposal',
-            'Partnership Proposal',
-            'Internal Company Proposal'
-        ];
-    }
+function tampilError(pesan) {
+if (!chatError) return;
+chatError.textContent = pesan;
+chatError.style.display = 'flex';
+}
 
-    if (/(tujuan|dibuat untuk|peruntukan|keperluan).*proposal|proposal.*(tujuan|dibuat untuk)/i.test(question)) {
-        return [
-            'Meminta approval',
-            'Meminta budget',
-            'Meminta resource',
-            'Menawarkan solusi',
-            'Menawarkan kerja sama',
-            'Mengajukan proyek',
-            'Mengajukan penelitian',
-            'Melakukan improvement'
-        ];
-    }
-
-    if (/(kompleksitas|tingkat kompleks|scope.*proposal)/i.test(question)) {
-        return [
-            'Simple — scope kecil, stakeholder terbatas, risiko rendah',
-            'Medium — beberapa stakeholder, resource, timeline, dan risiko',
-            'Complex — banyak stakeholder, dampak besar, budget signifikan'
-        ];
-    }
-
-    if (/(primary audience|target audience|audience|pihak.*membaca|target.*pembaca|siapa.*membaca)/i.test(question)) {
-        return [
-            'Direksi / Executive',
-            'Management / Manager',
-            'Client',
-            'Sponsor',
-            'Investor',
-            'Technical Team',
-            'Internal Team',
-            'Dosen / Akademik'
-        ];
-    }
-
-    if (/(kedalaman|proposal depth|tingkat detail|level.*proposal)/i.test(question)) {
-        return [
-            'Executive Level — strategic value, business impact, investment',
-            'Management Level — problem, solution, scope, timeline, budget',
-            'Operational Level — detail requirement, implementation, technical scope'
-        ];
-    }
-
-    if (/(background|konteks|latar belakang|situasi.*saat ini)/i.test(question) && !/(sudah|benar|sesuai)/i.test(question)) {
-        return [
-            'Ada masalah dalam proses bisnis saat ini',
-            'Perlu digitalisasi sistem manual',
-            'Ada opportunity untuk improvement',
-            'Kebutuhan dari stakeholder',
-            'Respon terhadap perubahan market'
-        ];
-    }
-
-    if (/(masalah|problem|kendala|issue|tantangan).*(?:apa|yang)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Proses manual memakan waktu lama',
-            'Data tidak terintegrasi',
-            'Biaya operasional tinggi',
-            'Kualitas hasil tidak konsisten',
-            'Tidak ada visibility real-time'
-        ];
-    }
-
-    if (/(objektif|tujuan|goal|target.*capai|hasil.*ingin)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Meningkatkan efisiensi operasional',
-            'Mengurangi biaya operasional',
-            'Meningkatkan kualitas output',
-            'Mempercepat proses bisnis',
-            'Meningkatkan customer satisfaction'
-        ];
-    }
-
-    if (/(metodologi|approach|cara.*kerja|bagaimana.*dikerjakan)/i.test(question)) {
-        return [
-            'Agile / Scrum',
-            'Waterfall',
-            'Hybrid Approach',
-            'Phased Implementation',
-            'Proof of Concept dulu'
-        ];
-    }
-
-    if (/(timeline|jadwal|waktu.*pengerjaan|berapa lama|durasi.*proyek)/i.test(question)) {
-        return [
-            '1-2 bulan',
-            '3-4 bulan',
-            '5-6 bulan',
-            '6-12 bulan',
-            'Lebih dari 1 tahun'
-        ];
-    }
-
-    if (/(budget|anggaran|biaya|estimasi.*cost)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Kurang dari Rp 50 juta',
-            'Rp 50-100 juta',
-            'Rp 100-500 juta',
-            'Rp 500 juta - 1 miliar',
-            'Lebih dari Rp 1 miliar'
-        ];
-    }
-
-    if (/(resource|sumber daya|tim.*butuh|kebutuhan.*tim)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Tim internal saja',
-            'Tim internal + vendor',
-            'Full outsource ke vendor',
-            'Consultant + tim internal',
-            'Mixed team (internal + external)'
-        ];
-    }
-
-    if (/(deliverable|output|hasil.*konkret|yang.*dihasilkan)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Software / Aplikasi',
-            'Dokumen / Report',
-            'Dashboard / Analytics',
-            'System / Infrastructure',
-            'Training / Knowledge Transfer'
-        ];
-    }
-
-    if (/(risk|risiko|potential.*issue|tantangan.*proyek)/i.test(question) && !/(sudah|sesuai)/i.test(question)) {
-        return [
-            'Low Risk — minimal impact jika gagal',
-            'Medium Risk — perlu mitigation plan',
-            'High Risk — perlu executive oversight'
-        ];
-    }
-
-    if (/(klasifikasi|audience|pemahaman|struktur|outline).*sudah (sesuai|benar)/i.test(question)) {
-        return ['Ya, sudah sesuai', 'Belum sesuai, perlu revisi'];
-    }
-
-    if (/(sudah sesuai|sudah benar|apakah.*benar|konfirmasi|setuju.*dengan)/i.test(question)) {
-        return ['Ya, sudah sesuai', 'Belum sesuai'];
-    }
-
-    if (/(format.*(?:keluaran|output|dokumen|proposal)|output.*format|bentuk.*dokumen)/i.test(question)) {
-        return [
-            'Markdown',
-            'Microsoft Word (.docx)',
-            'PowerPoint (.pptx)',
-            'PDF'
-        ];
-    }
-
-    if (/(prioritas|prioritas utama|fokus.*utama)/i.test(question) && !/format/i.test(question)) {
-        return ['Ya, ini prioritas utama saya', 'Bukan prioritas utama'];
-    }
-
-    if (/(proyek lain|project.*lain|pekerjaan.*lain)/i.test(question)) {
-        return ['Ya, ada proyek lain', 'Tidak, tidak ada proyek lain'];
-    }
-
-    if (/(estimasi|berapa lama|durasi|waktu.*selesai).*(?:task|pekerjaan|ini)/i.test(question) && !/(proyek|proposal)/i.test(question)) {
-        return [
-            '1-2 hari',
-            '3-5 hari',
-            '1-2 minggu',
-            '2-4 minggu',
-            'Lebih dari 1 bulan'
-        ];
-    }
-
-    return [];
+function bersihkanError() {
+if (!chatError) return;
+chatError.textContent = '';
+chatError.style.display = 'none';
 }
 
 function conversationIsActive() {
 return {{ ($conversation?->isActive() ?? true) ? 'true' : 'false' }};
 }
 
-function showOptions(content) {
+/**
+ * Render pilihan cepat dari server. "Something else" dibuang karena kotak tulis
+ * pada desain ini selalu tersedia di bawah pilihan.
+ */
+function showOptions(options, questionType) {
 if (!quickOptions || !conversationIsActive()) return;
-const options = optionsForQuestion(content);
-if (options.length === 0) {
+
+const daftar = (options || []).filter(function (o) {
+return String(o).trim() !== '' && String(o).trim().toLowerCase() !== 'something else';
+});
+
+if (daftar.length === 0) {
 quickOptions.innerHTML = '';
 quickOptions.style.display = 'none';
-questionProgress.style.display = 'none';
-messageInput.focus();
+if (messageInput) messageInput.focus();
 return;
 }
-currentQuestionIndex++;
-totalQuestions = Math.max(totalQuestions, currentQuestionIndex);
-progressText.textContent = currentQuestionIndex + ' of ' + totalQuestions;
-questionProgress.style.display = 'flex';
-quickOptions.innerHTML = options.map((o, i) =>
-'<button type="button" class="opt" data-value="' + escapeHtml(o) + '">' +
-'<span class="opt-n">' + (i + 1) + '</span><span>' + escapeHtml(o) + '</span></button>'
-).join('') +
-'<button type="button" class="opt other" id="otherOption">' +
-'<span class="opt-n">+</span><span>Jawaban lain</span></button>';
+
+quickOptions.dataset.questionType = questionType || '';
+quickOptions.innerHTML = daftar.map(function (o, i) {
+return '<button type="button" class="opt" data-value="' + escapeHtml(o) + '">' +
+'<span class="opt-n">' + (i + 1) + '</span><span>' + escapeHtml(o) + '</span></button>';
+}).join('');
 quickOptions.style.display = 'grid';
 quickOptions.style.opacity = '1';
 quickOptions.querySelectorAll('.opt').forEach(function (b) {
-b.addEventListener('click', function () {
-if (b.id === 'otherOption') {
-// Seperti "Something else" di alur lama: pilihan tetap terlihat, hanya diredupkan.
-quickOptions.style.opacity = '.5';
-messageInput.focus();
-return;
-}
-submitMessage(b.getAttribute('data-value'));
-});
+b.addEventListener('click', function () { submitMessage(b.getAttribute('data-value')); });
 });
 }
 
-function addMessage(content, isUser) {
+function addMessage(content, isUser, hasOptions, options, questionType) {
 const d = document.createElement('div');
 d.className = 'msg ' + (isUser ? 'me' : 'ai');
 const now = new Date();
@@ -415,7 +255,7 @@ d.innerHTML = '<div style="max-width:100%">' +
 (isUser ? '' : '<div class="ai-head"><span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></span>INAai Agent</div>') +
 '<div class="bub">' + escapeHtml(content) + '<div class="bub-t">' + t + '</div></div></div>';
 messageList.appendChild(d);
-if (!isUser) showOptions(content);
+if (!isUser) showOptions(hasOptions ? (options || []) : [], questionType);
 scrollToBottom();
 }
 
@@ -434,10 +274,22 @@ if (t) t.remove();
 }
 
 async function submitMessage(message) {
-if (!message) return;
+if (messageInput && messageInput.disabled) return;
+bersihkanError();
+
+if (!message) {
+tampilError('Jawaban wajib diisi.');
+if (messageInput) messageInput.focus();
+return;
+}
+if (!jawabanBermakna(message)) {
+tampilError('Jawaban belum cukup jelas. Silakan tulis jawaban yang relevan.');
+if (messageInput) messageInput.focus();
+return;
+}
+
 messageInput.disabled = true;
 sendButton.disabled = true;
-if (skipButton) skipButton.disabled = true;
 quickOptions.style.display = 'none';
 quickOptions.style.opacity = '1';
 addMessage(message, true);
@@ -445,6 +297,7 @@ messageInput.value = '';
 autoGrow();
 syncSendButton();
 showTyping();
+
 try {
 // Percakapan baru belum punya baris di database — pesan pertama yang membuatnya.
 const res = await fetch(conversationId ? urlKirim() : urlMulai, {
@@ -459,23 +312,32 @@ body: JSON.stringify({ message: message })
 });
 const data = await res.json();
 hideTyping();
+
 if (data.conversation_id && !conversationId) {
 conversationId = data.conversation_id;
 history.replaceState({}, '', data.conversation_url);
 // Daftar riwayat di sidebar sekarang usang.
 window.dispatchEvent(new Event('inaai:riwayat-usang'));
 }
-if (data.success && data.ai_response) {
-addMessage(data.ai_response.content, false);
+
+// Balasan validasi juga berupa pesan AI lengkap dengan pilihan sebelumnya.
+if (data.ai_response && data.ai_response.content) {
+addMessage(
+data.ai_response.content,
+false,
+!!data.ai_response.has_options,
+data.ai_response.options || [],
+data.ai_response.question_type || null
+);
 } else {
-addMessage('Maaf, terjadi kesalahan dalam memproses permintaan Anda.', false);
+tampilError(data.message || 'Terjadi kesalahan saat memproses permintaan Anda.');
 }
 } catch (e) {
 hideTyping();
-addMessage('Koneksi bermasalah. Silakan coba lagi.', false);
+tampilError('Koneksi bermasalah. Silakan coba lagi.');
 }
+
 messageInput.disabled = false;
-if (skipButton) skipButton.disabled = false;
 syncSendButton();
 messageInput.focus();
 }
@@ -503,7 +365,7 @@ renderLampiran();
 }
 
 if (messageInput) {
-messageInput.addEventListener('input', function () { autoGrow(); syncSendButton(); });
+messageInput.addEventListener('input', function () { autoGrow(); syncSendButton(); bersihkanError(); });
 messageInput.addEventListener('keydown', function (e) {
 if (e.key === 'Enter' && !e.shiftKey) {
 e.preventDefault();
@@ -519,10 +381,6 @@ messageForm.addEventListener('submit', function (e) {
 e.preventDefault();
 submitMessage(messageInput.value.trim());
 });
-}
-
-if (skipButton) {
-skipButton.addEventListener('click', function () { submitMessage('Skip'); });
 }
 
 if (attachBtn) {
@@ -551,6 +409,7 @@ rec.onresult = function (e) {
 const teks = e.results[0][0].transcript;
 messageInput.value = (messageInput.value ? messageInput.value + ' ' : '') + teks;
 autoGrow();
+syncSendButton();
 };
 rec.onend = function () { voiceBtn.classList.remove('rec'); rec = null; messageInput.focus(); };
 rec.onerror = function () { voiceBtn.classList.remove('rec'); rec = null; };
@@ -558,9 +417,9 @@ rec.start();
 });
 }
 
-(function () {
-const aiBubbles = messageList.querySelectorAll('.msg.ai .bub');
-if (aiBubbles.length) showOptions(aiBubbles[aiBubbles.length - 1].textContent);
-})();
+/* Pilihan untuk pesan AI terakhir yang dirender server. */
+showOptions(opsiAwal.options || [], opsiAwal.question_type || null);
+// Blok pilihan menambah tinggi composer, jadi posisi gulir perlu disetel ulang.
+scrollToBottom();
 </script>
 @endpush

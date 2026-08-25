@@ -5,14 +5,18 @@ import QuickOptions from './QuickOptions';
 /**
  * ChatInterface Component
  * Komponen utama untuk interface chat dengan form interaktif
- * 
+ *
  * @param {Object} props
  * @param {number} props.conversationId - ID conversation
  * @param {Array} props.initialMessages - Pesan awal dari server
  * @param {boolean} props.isActive - Apakah conversation masih aktif
  */
 export default function ChatInterface({ conversationId, initialMessages = [], isActive = true }) {
-    const [messages, setMessages] = useState(initialMessages);
+    const [messages, setMessages] = useState(initialMessages.map(message => ({
+        ...message,
+        options: message.options || message.metadata?.options || [],
+        question_type: message.question_type || message.metadata?.question_type,
+    })));
     const [isLoading, setIsLoading] = useState(false);
     const [currentQuestion, setCurrentQuestion] = useState('');
     const [currentStep, setCurrentStep] = useState(1);
@@ -61,6 +65,9 @@ export default function ChatInterface({ conversationId, initialMessages = [], is
                     const aiMessage = {
                         sender_type: 'ai',
                         content: data.ai_response.content,
+                        options: data.ai_response.options || [],
+                        has_options: data.ai_response.has_options || false,
+                        question_type: data.ai_response.question_type || data.ai_response.type,
                         created_at: new Date().toISOString()
                     };
                     setMessages(prev => [...prev, aiMessage]);
@@ -83,6 +90,8 @@ export default function ChatInterface({ conversationId, initialMessages = [], is
     const handleSkip = () => {
         sendMessage('Skip');
     };
+
+    const latestAiMessage = [...messages].reverse().find(message => message.sender_type === 'ai');
 
     return (
         <div className="h-screen flex flex-col bg-gradient-to-b from-gray-50 to-white">
@@ -116,6 +125,8 @@ export default function ChatInterface({ conversationId, initialMessages = [], is
                 <div className="px-6 py-6 pb-8 border-t border-gray-200 bg-white">
                     <QuickOptions
                         question={currentQuestion}
+                        options={latestAiMessage?.options || []}
+                        questionType={latestAiMessage?.question_type}
                         onSelect={handleOptionSelect}
                         currentStep={currentStep}
                         totalSteps={10}

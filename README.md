@@ -76,7 +76,7 @@ Aplikasi ini punya dua sisi:
 | PHP        | 8.2+                                                                       |
 | Framework  | Laravel 12                                                                 |
 | Tampilan   | Blade + CSS kustom (`resources/views/partials/inaai-style.blade.php`)    |
-| Database   | MySQL 8.4                                                                  |
+| Database   | PostgreSQL 18.4 (image `local/postgres-postgis:18.4-postgis3`)              |
 | Build aset | Vite 7 + Tailwind 4 (opsional, hanya untuk halaman berbasis React/Inertia) |
 | Font       | Plus Jakarta Sans (Google Fonts)                                           |
 
@@ -88,9 +88,9 @@ Aplikasi ini punya dua sisi:
 
 ## Kebutuhan Sistem
 
-- PHP **8.2** atau lebih baru, beserta ekstensi standar Laravel (`pdo_mysql`, `mbstring`, `openssl`, `fileinfo`).
+- PHP **8.2** atau lebih baru, beserta ekstensi standar Laravel (`pdo_pgsql`, `mbstring`, `openssl`, `fileinfo`).
 - Composer 2.x
-- MySQL 8.x (disarankan lewat Docker)
+- PostgreSQL 16+ (disarankan lewat Docker)
 - Node.js 20+ dan npm (opsional, untuk aset Vite)
 
 ---
@@ -99,16 +99,26 @@ Aplikasi ini punya dua sisi:
 
 ### 1. Siapkan database
 
-Cara termudah adalah memakai stack MySQL Docker yang sudah tersedia:
+Aplikasi memakai PostgreSQL yang berjalan di container `postgres18-postgis`
+(`127.0.0.1:5432`). Buat role dan database khusus aplikasi:
 
 ```bash
-cd /Users/buanamac-1/Projects/Infra/DB/MySQL
-cp .env.example .env      # cukup sekali
-docker compose up -d
+# ganti <password> dengan password pilihan Anda
+docker exec postgres18-postgis \
+  psql -U postgres -c "CREATE ROLE inaai WITH LOGIN PASSWORD '<password>';"
+
+docker exec postgres18-postgis \
+  psql -U postgres -c "CREATE DATABASE work OWNER inaai ENCODING 'UTF8';"
+
+docker exec postgres18-postgis \
+  psql -U postgres -d work -c "ALTER SCHEMA public OWNER TO inaai;"
 ```
 
-MySQL akan berjalan di `127.0.0.1:3307`. Kalau Anda punya MySQL sendiri, cukup buat
-sebuah database kosong lalu sesuaikan `.env` aplikasi.
+Baris terakhir penting: sejak PostgreSQL 15, role biasa tidak lagi otomatis boleh
+membuat tabel di schema `public`, sehingga migration akan gagal tanpa itu.
+
+Kalau Anda memakai PostgreSQL sendiri, cukup siapkan database kosong beserta
+pemiliknya lalu sesuaikan `.env` aplikasi.
 
 ### 2. Siapkan aplikasi
 
@@ -168,13 +178,13 @@ APP_URL=http://localhost:8001
 APP_TIMEZONE=Asia/Jakarta
 APP_LOCALE=id
 
-# Database — sesuaikan dengan MySQL Anda
-DB_CONNECTION=mysql
+# Database — sesuaikan dengan PostgreSQL Anda
+DB_CONNECTION=pgsql
 DB_HOST=127.0.0.1
-DB_PORT=3307
+DB_PORT=5432
 DB_DATABASE=work
-DB_USERNAME=office_ai
-DB_PASSWORD=
+DB_USERNAME=inaai
+DB_PASSWORD="<password>"
 
 # Agent / LLM
 AI_API_KEY=
@@ -333,22 +343,27 @@ git merge main            # atau: git rebase main
 <details>
 <summary><b>SQLSTATE[HY000] [2002] Connection refused</b></summary>
 
-MySQL belum jalan atau port salah. Cek container dan port:
+PostgreSQL belum jalan atau port salah. Cek container dan port:
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Ports}}'
 php artisan db:show
 ```
 
-Pastikan `DB_PORT` di `.env` sama dengan port yang dipetakan container (default `3307`).
+Pastikan `DB_PORT` di `.env` sama dengan port yang dipetakan container (default `5432`).
 
 </details>
 
 <details>
-<summary><b>Access denied for user ...</b></summary>
+<summary><b>SQLSTATE[08006] password authentication failed for user ...</b></summary>
 
-Cocokkan `DB_USERNAME`/`DB_PASSWORD` di `.env` aplikasi dengan
-`MYSQL_USER`/`MYSQL_PASSWORD` di `.env` stack MySQL.
+Cocokkan `DB_USERNAME`/`DB_PASSWORD` di `.env` dengan role PostgreSQL yang Anda buat.
+Reset password role bila perlu:
+
+```bash
+docker exec postgres18-postgis \
+  psql -U postgres -c "ALTER ROLE inaai WITH PASSWORD '<password>';"
+```
 
 </details>
 

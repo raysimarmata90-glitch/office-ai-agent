@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             QuestionTemplateSeeder::class,
             AdminUserSeeder::class,
             DummyPekerjaanSeeder::class,
+            ProjectTaskSeeder::class,
         ]);
     }
 }

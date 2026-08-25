@@ -14,7 +14,7 @@
 </head>
 <body>
 <div class="shell">
-@include('partials.admin-sidebar')
+@include('partials.user-sidebar')
 <div class="main">
 <div class="topbar">
 <div style="flex:1;min-width:0">

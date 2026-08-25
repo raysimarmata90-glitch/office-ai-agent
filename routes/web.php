@@ -4,7 +4,9 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\Admin\ProjectAdminController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
 
 // Redirect root to register
@@ -32,9 +34,18 @@ Route::middleware('auth')->group(function () {
 
     // User Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/pekerjaan', [DashboardController::class, 'pekerjaan'])->name('pekerjaan.index');
+    Route::get('/pekerjaan', [TaskController::class, 'index'])->name('pekerjaan.index');
+
+    // Tugas (user)
+    Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
+    Route::get('/tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
+    Route::patch('/tasks/{task}/status', [TaskController::class, 'updateStatus'])->name('tasks.status');
+    Route::get('/evidence/{evidence}', [TaskController::class, 'evidence'])->name('tasks.evidence');
 
     // Chat Routes
+    Route::get('/chat/baru', [ChatController::class, 'baru'])->name('chat.baru');
+    Route::post('/conversations', [ChatController::class, 'mulai'])->name('chat.mulai');
+    Route::get('/riwayat', [ChatController::class, 'riwayat'])->name('chat.riwayat');
     Route::post('/conversations/start', [ChatController::class, 'startConversation'])->name('conversations.start');
     Route::get('/conversations/{conversation}', [ChatController::class, 'show'])->name('chat.show');
     Route::post('/conversations/{conversation}/messages', [ChatController::class, 'sendMessage'])->name('chat.send');
@@ -52,5 +63,16 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/chat-histories', [AdminDashboardController::class, 'chatHistories'])->name('chat.histories');
     Route::get('/pekerjaan', [AdminDashboardController::class, 'pekerjaan'])->name('pekerjaan');
     Route::get('/conversations/{conversation}', [AdminDashboardController::class, 'conversationDetail'])->name('conversation.detail');
+    Route::get('/laporan', [AdminDashboardController::class, 'laporan'])->name('laporan');
+    Route::get('/laporan/ekspor', [AdminDashboardController::class, 'ekspor'])->name('laporan.ekspor');
+
+    // Proyek
+    Route::get('/proyek', [ProjectAdminController::class, 'index'])->name('proyek.index');
+    Route::post('/proyek', [ProjectAdminController::class, 'store'])->name('proyek.store');
+    Route::get('/proyek/{project}', [ProjectAdminController::class, 'show'])->name('proyek.show');
+
+    // Assign tugas ke pegawai
+    Route::post('/tugas/assign', [ProjectAdminController::class, 'assign'])->name('tugas.assign');
+    Route::patch('/tugas/{task}/status', [TaskController::class, 'updateStatus'])->name('tugas.status');
 });
 

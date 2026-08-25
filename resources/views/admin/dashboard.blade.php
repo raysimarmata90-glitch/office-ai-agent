@@ -1,235 +1,221 @@
 @extends('layouts.admin')
+@section('title', 'Dashboard')
+@section('page-title', 'Selamat datang, ' . explode(' ', $user->name)[0])
+@section('page-sub', 'Ringkasan portofolio · diperbarui ' . now()->translatedFormat('d F Y, H.i'))
 
-@section('title', 'Dashboard Admin')
-@section('page-title', 'Dashboard Admin')
+@section('topbar-actions')
+<a href="{{ route('admin.laporan.ekspor') }}" class="btn">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>
+Ekspor Laporan
+</a>
+<button class="btn btn-primary" type="button" data-open-assign>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>
+Assign Tugas
+</button>
+@endsection
+
+@push('style')
+<style>
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.ov-row{display:grid;grid-template-columns:170px 1fr 92px;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line3)}
+.ov-row:last-child{border-bottom:none}
+.ov-nama{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;min-width:0}
+.ov-dot{width:9px;height:9px;border-radius:3px;flex:none}
+.ov-meta{font-size:11.5px;color:var(--muted2);text-align:right;white-space:nowrap}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted2);margin-bottom:10px;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:9px;height:9px;border-radius:3px;display:block}
+.kanban{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px}
+.kcol{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:120px}
+.kcol-h{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:9px}
+.kcol-c{background:#fff;border:1px solid var(--line2);border-radius:999px;padding:1px 8px;font-size:11px;color:var(--muted2)}
+.ktask{background:#fff;border:1px solid var(--line2);border-radius:10px;padding:9px 10px;margin-bottom:8px}
+.ktask-j{font-size:12.5px;font-weight:600;line-height:1.35}
+.ktask-m{display:flex;align-items:center;justify-content:space-between;margin-top:7px;gap:6px}
+.ktask-p{font-size:11px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt-scroll{overflow-x:auto}
+.gantt-head{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:11px;min-width:520px}
+.gantt-head div{font-size:11px;color:var(--muted2);font-weight:600;text-align:center}
+.gantt-row{display:grid;grid-template-columns:150px 1fr;gap:11px;align-items:center;margin-bottom:9px;min-width:520px}
+.gantt-nama{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt-track{position:relative;height:20px;background:var(--line3);border-radius:999px}
+.gantt-bar{position:absolute;top:0;height:20px;border-radius:999px;opacity:.32}
+.gantt-fill{position:absolute;top:0;height:20px;border-radius:999px}
+.gantt-pct{position:absolute;right:8px;top:0;height:20px;display:flex;align-items:center;font-size:10.5px;font-weight:700;color:var(--muted)}
+.akt{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line3)}
+.akt:last-child{border-bottom:none}
+.akt-t{font-size:12.5px;line-height:1.4}
+.akt-w{font-size:11px;color:var(--muted3);margin-top:2px}
+.risk{display:flex;align-items:center;gap:9px;background:#fde3e1;color:#b23c35;padding:10px 14px;border-radius:11px;font-size:12.5px;margin-bottom:14px}
+@media(max-width:1000px){.dash-grid{grid-template-columns:1fr}.kanban{grid-template-columns:repeat(2,1fr)}}
+</style>
+@endpush
 
 @section('content')
-    <div class="px-5 py-8 lg:px-8 lg:py-10 space-y-8">
-        <!-- Welcome Banner -->
-        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-8 text-white">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold mb-2">Selamat datang, {{ $user->name }}!</h1>
-                    <p class="text-indigo-100 text-lg">Panel kontrol administrasi Office AI Agent</p>
-                </div>
-                <div class="hidden md:block">
-                    <div class="w-24 h-24 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
-                        <i class="fas fa-shield-halved text-5xl"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
+@if($berisiko->isNotEmpty())
+<div class="risk">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/></svg>
+<span><strong>{{ $berisiko->count() }} proyek berisiko:</strong> {{ $berisiko->implode(' dan ') }} mendekati deadline.</span>
+<a href="{{ route('admin.proyek.index') }}" class="btn btn-sm" style="margin-left:auto">Tinjau proyek</a>
+</div>
+@endif
 
-        <!-- Metrics Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div class="bg-white border border-gray-200 shadow-sm rounded-lg p-5 metric-card">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                        <p class="text-sm font-medium text-gray-600 mb-1 font-sans">Total Pekerjaan</p>
-                        <p class="text-3xl font-bold font-mono text-gray-900">{{ $pekerjaan->total() }}</p>
-                        <div class="mt-2 flex items-center text-xs font-sans">
-                            <span class="text-gray-500">Semua staff</span>
-                        </div>
-                    </div>
-                    <div
-                        class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-700">
-                        <i class="fas fa-briefcase text-xl"></i>
-                    </div>
-                </div>
-            </div>
+<div class="grid-kpi">
+@foreach($kpi as $k)
+<div class="kpi">
+<div class="kpi-l">{{ $k['label'] }}</div>
+<div class="kpi-v">{{ $k['nilai'] }}</div>
+<div class="kpi-s">{{ $k['sub'] }}</div>
+</div>
+@endforeach
+</div>
 
-            <div class="bg-white border border-gray-200 shadow-sm rounded-lg p-5 metric-card">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                        <p class="text-sm font-medium text-gray-600 mb-1 font-sans">On Going</p>
-                        <p class="text-3xl font-bold font-mono text-gray-900">
-                            {{ $pekerjaan->where('status', 'on going')->count() }}</p>
-                        <div class="mt-2 flex items-center text-xs font-sans">
-                            <span class="text-amber-600 font-medium">
-                                <i class="fas fa-circle text-xs mr-1"></i>Berlangsung
-                            </span>
-                        </div>
-                    </div>
-                    <div
-                        class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-100 text-amber-700">
-                        <i class="fas fa-clock text-xl"></i>
-                    </div>
-                </div>
-            </div>
+<div class="dash-grid">
+<div class="card">
+<div class="card-head">
+<div class="card-title">Overview per Proyek</div>
+<div class="card-desc">100% = total tugas seluruh proyek. Pekat = selesai, terang = to do.</div>
+</div>
+<div class="card-body">
+<div class="legend">
+<span><i style="background:#1f7a52"></i>Selesai</span>
+<span><i style="background:#f5a273"></i>Sedang Dikerjakan</span>
+<span><i style="background:#eef0f6"></i>To Do</span>
+</div>
+@forelse($overviewProyek as $p)
+<a href="{{ route('admin.proyek.show', $p['id']) }}" class="ov-row">
+<div class="ov-nama">
+<i class="ov-dot" style="background:{{ $p['warna'] }}"></i>
+<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $p['nama'] }}</span>
+@if($p['berisiko'])<span class="badge b-risk">Berisiko</span>@endif
+</div>
+<div class="stack">
+<i style="width:{{ $p['wDone'] }}%;background:#1f7a52"></i>
+<i style="width:{{ $p['wProgress'] }}%;background:#f5a273"></i>
+<i style="width:{{ $p['wTodo'] }}%;background:#eef0f6"></i>
+</div>
+<div class="ov-meta">{{ $p['tugas'] }} tugas · {{ $p['pct'] }}%</div>
+</a>
+@empty
+<div class="empty">Belum ada proyek.</div>
+@endforelse
+</div>
+</div>
 
-            <div class="bg-white border border-gray-200 shadow-sm rounded-lg p-5 metric-card">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                        <p class="text-sm font-medium text-gray-600 mb-1 font-sans">Completed</p>
-                        <p class="text-3xl font-bold font-mono text-gray-900">
-                            {{ $pekerjaan->where('status', 'completed')->count() }}</p>
-                        <div class="mt-2 flex items-center text-xs font-sans">
-                            <span class="text-emerald-600 font-medium">
-                                <i class="fas fa-check-circle text-xs mr-1"></i>Selesai
-                            </span>
-                        </div>
-                    </div>
-                    <div
-                        class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100 text-emerald-700">
-                        <i class="fas fa-check text-xl"></i>
-                    </div>
-                </div>
-            </div>
+<div class="card">
+<div class="card-head">
+<div class="card-title">Overview per User</div>
+<div class="card-desc">100% = total tugas. {{ $overviewUser->count() }} kontributor dengan beban tertinggi.</div>
+</div>
+<div class="card-body">
+<div class="legend">
+<span><i style="background:#1f7a52"></i>Selesai</span>
+<span><i style="background:#f5a273"></i>Sedang Dikerjakan</span>
+<span><i style="background:#eef0f6"></i>To Do</span>
+</div>
+@forelse($overviewUser as $u)
+<div class="ov-row">
+<div class="ov-nama">
+<span class="avatar" style="width:24px;height:24px;font-size:10px">{{ $u['inisial'] }}</span>
+<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $u['nama'] }}</span>
+</div>
+<div class="stack">
+<i style="width:{{ $u['wDone'] }}%;background:#1f7a52"></i>
+<i style="width:{{ $u['wProgress'] }}%;background:#f5a273"></i>
+<i style="width:{{ $u['wTodo'] }}%;background:#eef0f6"></i>
+</div>
+<div class="ov-meta">{{ $u['tugas'] }} tugas · {{ $u['pct'] }}%</div>
+</div>
+@empty
+<div class="empty">Belum ada kontributor.</div>
+@endforelse
+</div>
+</div>
+</div>
 
-            <div class="bg-white border border-gray-200 shadow-sm rounded-lg p-5 metric-card">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                        <p class="text-sm font-medium text-gray-600 mb-1 font-sans">Highest Priority</p>
-                        <p class="text-3xl font-bold font-mono text-gray-900">
-                            {{ $pekerjaan->where('kategori', 'Highest')->count() }}</p>
-                        <div class="mt-2 flex items-center text-xs font-sans">
-                            <span class="text-red-600 font-medium">
-                                <i class="fas fa-angles-up text-xs mr-1"></i>Prioritas
-                            </span>
-                        </div>
-                    </div>
-                    <div
-                        class="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-red-100 text-red-700">
-                        <i class="fas fa-exclamation text-xl"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="card" style="margin-top:14px">
+<div class="card-head">
+<div class="card-title">Kanban per Progress</div>
+<div class="card-desc">Ringkasan tugas terbaru pada setiap status.</div>
+</div>
+<div class="card-body">
+<div class="kanban">
+@foreach($kanban as $col)
+<div class="kcol">
+<div class="kcol-h">
+<span>{{ $col['nama'] }}</span>
+<span class="kcol-c">{{ $col['count'] }}</span>
+</div>
+@forelse($col['items']->take(4) as $t)
+<div class="ktask">
+<div class="ktask-j">{{ $t->judul }}</div>
+<div class="ktask-m">
+<span class="ktask-p">{{ $t->project?->nama }}</span>
+<span class="avatar" style="width:22px;height:22px;font-size:9.5px">{{ $t->user?->inisial() }}</span>
+</div>
+</div>
+@empty
+<div style="font-size:11.5px;color:var(--muted3);text-align:center;padding:14px 0">Tidak ada tugas</div>
+@endforelse
+@if($col['count'] > 4)
+<div style="font-size:11px;color:var(--muted2);text-align:center;padding-top:3px">+{{ $col['count'] - 4 }} lainnya</div>
+@endif
+</div>
+@endforeach
+</div>
+</div>
+</div>
 
-        <!-- Main Table -->
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div class="p-6 pb-4 border-b border-gray-200">
-                <h2 class="text-xl font-bold text-gray-900">
-                    <i class="fas fa-briefcase mr-2 text-indigo-600"></i>Daftar Pekerjaan Staff
-                </h2>
-                <p class="text-gray-600 mt-1 text-sm">Ringkasan pekerjaan dari percakapan yang telah selesai.</p>
-            </div>
+<div class="dash-grid">
+<div class="card" style="display:flex;flex-direction:column">
+<div class="card-head">
+<div class="card-title">Timeline Proyek</div>
+</div>
+<div class="card-body" style="flex:1">
+<div class="gantt-scroll">
+<div class="gantt-head">
+@foreach($bulan as $b)
+<div>{{ $b->translatedFormat('M') }}</div>
+@endforeach
+</div>
+@forelse($gantt as $g)
+<div class="gantt-row">
+<div class="gantt-nama">{{ $g['nama'] }}</div>
+<div class="gantt-track">
+<div class="gantt-bar" style="left:{{ $g['pos']['left'] }}%;width:{{ $g['pos']['width'] }}%;background:{{ $g['warna'] }}"></div>
+<div class="gantt-fill" style="left:{{ $g['pos']['left'] }}%;width:{{ $g['pos']['width'] * $g['pct'] / 100 }}%;background:{{ $g['warna'] }}"></div>
+<div class="gantt-pct">{{ $g['pct'] }}%</div>
+</div>
+</div>
+@empty
+<div class="empty">Belum ada proyek berjadwal.</div>
+@endforelse
+</div>
+</div>
+<div class="card-foot">Satu warna per proyek — bar pekat = progres, bar terang = rencana.</div>
+</div>
 
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">No
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Nama</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Divisi</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Nama Projek</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Pekerjaan</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Prioritas</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Tanggal</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        @forelse($pekerjaan as $item)
-                            <tr class="align-top hover:bg-gray-50 transition-colors">
-                                <td class="px-6 py-4 text-sm font-mono text-gray-500 whitespace-nowrap">
-                                    {{ $pekerjaan->firstItem() + $loop->index }}
-                                </td>
-                                <td class="px-6 py-4 text-sm font-medium text-gray-900 whitespace-nowrap">
-                                    {{ $item->name }}
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">
-                                    <span
-                                        class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                        <i class="fas fa-building mr-1.5 text-xs"></i>
-                                        {{ $item->division ?? '-' }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 text-sm font-medium text-gray-900 whitespace-nowrap">
-                                    {{ $item->nama_projek }}
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-700 min-w-[300px] max-w-[400px]">
-                                    <div class="whitespace-pre-line line-clamp-3">{{ $item->pekerjaan }}</div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <form id="pekerjaan-update-{{ $item->id }}" method="POST"
-                                        action="{{ route('admin.pekerjaan.update', $item) }}">
-                                        @csrf
-                                        @method('PATCH')
-                                    </form>
-                                    <div class="space-y-2">
-                                        @if ($item->status === 'on going')
-                                            <span
-                                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
-                                                <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 bg-amber-500"></span>
-                                                On Going
-                                            </span>
-                                        @else
-                                            <span
-                                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
-                                                <span
-                                                    class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 bg-emerald-500"></span>
-                                                Completed
-                                            </span>
-                                        @endif
-                                        <select form="pekerjaan-update-{{ $item->id }}" name="status"
-                                            class="block w-full text-xs border-gray-300 rounded-md focus:border-indigo-500 focus:ring-indigo-500">
-                                            <option value="on going" @selected($item->status === 'on going')>On Going</option>
-                                            <option value="completed" @selected($item->status === 'completed')>Completed</option>
-                                        </select>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    @php
-                                        $categoryStyles = [
-                                            'Highest' => ['bg-red-50 text-red-700 ring-red-200', 'fa-angles-up', 'bg-red-500'],
-                                            'High' => ['bg-rose-50 text-rose-600 ring-rose-200', 'fa-angle-up', 'bg-rose-500'],
-                                            'Medium' => ['bg-orange-50 text-orange-600 ring-orange-200', 'fa-minus', 'bg-orange-500'],
-                                            'Low' => ['bg-blue-50 text-blue-600 ring-blue-200', 'fa-angle-down', 'bg-blue-500'],
-                                            'Lowest' => ['bg-gray-100 text-gray-600 ring-gray-200', 'fa-angles-down', 'bg-gray-500'],
-                                        ];
-                                        [$categoryClass, $categoryIcon, $categoryDot] =
-                                            $categoryStyles[$item->kategori] ?? $categoryStyles['Medium'];
-                                    @endphp
-                                    <div class="space-y-2">
-                                        <span
-                                            class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ring-1 {{ $categoryClass }}">
-                                            <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 {{ $categoryDot }}"></span>
-                                            <i class="fas {{ $categoryIcon }} mr-1"></i>{{ $item->kategori ?? 'Medium' }}
-                                        </span>
-                                        <select form="pekerjaan-update-{{ $item->id }}" name="kategori"
-                                            class="block w-full text-xs border-gray-300 rounded-md focus:border-indigo-500 focus:ring-indigo-500">
-                                            @foreach (['Highest', 'High', 'Medium', 'Low', 'Lowest'] as $category)
-                                                <option value="{{ $category }}" @selected($item->kategori === $category)>
-                                                    {{ $category }}</option>
-                                            @endforeach
-                                        </select>
-                                        <button form="pekerjaan-update-{{ $item->id }}" type="submit"
-                                            class="w-full px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-md font-medium transition-colors">
-                                            <i class="fas fa-save mr-1"></i>Simpan
-                                        </button>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-sm font-mono text-gray-500 whitespace-nowrap">
-                                    {{ $item->created_at?->format('d M Y') ?? '-' }}<br>
-                                    <span class="text-xs text-gray-400">{{ $item->created_at?->format('H:i') ?? '' }}</span>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="8" class="px-6 py-12 text-center text-gray-500">
-                                    <i class="fas fa-inbox text-4xl text-gray-300 mb-3 block"></i>
-                                    <p class="font-medium">Belum ada data pekerjaan.</p>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+<div class="card" style="display:flex;flex-direction:column">
+<div class="card-head">
+<div class="card-title">Aktivitas Terbaru</div>
+</div>
+<div class="card-body" style="flex:1">
+@forelse($aktivitas as $a)
+<div class="akt">
+<span class="avatar">{{ $a['inisial'] }}</span>
+<div style="min-width:0">
+<div class="akt-t"><strong>{{ $a['siapa'] }}</strong> — {{ $a['apa'] }}</div>
+<div class="akt-w">{{ $a['waktu'] }}</div>
+</div>
+</div>
+@empty
+<div class="empty">Belum ada aktivitas.</div>
+@endforelse
+</div>
+<div class="card-foot">Menampilkan {{ $aktivitas->count() }} pembaruan tugas terakhir.</div>
+</div>
+</div>
 
-            @if ($pekerjaan->hasPages())
-                <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                    {{ $pekerjaan->links() }}
-                </div>
-            @endif
-        </div>
-    </div>
+@php($semuaUser = \App\Models\User::where('is_active', true)->orderBy('name')->get())
+@include('partials.modal-assign')
 @endsection

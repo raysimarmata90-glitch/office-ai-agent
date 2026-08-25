@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Message;
 use App\Models\Pekerjaan;
 use App\Models\QuestionTemplate;
+use App\Models\User;
 use App\Services\Agent\AgentOrchestrator;
 use Illuminate\Http\Request;
 
@@ -17,6 +18,96 @@ class ChatController extends Controller
     public function __construct(AgentOrchestrator $agent)
     {
         $this->agent = $agent;
+    }
+
+    /** Jumlah riwayat yang dimuat per permintaan pada panel riwayat. */
+    public const RIWAYAT_PER_HALAMAN = 50;
+
+    /** Pesan pembuka agent — pertanyaan pertama selalu menanyakan proyek yang dikerjakan. */
+    public const PERTANYAAN_AWAL = 'Halo! Senang bertemu dengan Anda. Apa proyek yang sedang Anda kerjakan hari ini?';
+
+    public const PROMPT_AWAL = 'Sapa user dengan hangat, lalu gali proyek, objektif, harapan, task, dan estimasi durasi pengerjaan.';
+
+    /**
+     * Buat percakapan baru berikut pesan pembukanya.
+     */
+    public static function percakapanBaru(User $user): Conversation
+    {
+        $conversation = Conversation::create([
+            'user_id' => $user->id,
+            'department_id' => $user->department_id,
+            'title' => 'Percakapan Baru',
+            'status' => 'active',
+            'current_step' => 1,
+        ]);
+
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'ai',
+            'content' => self::PERTANYAAN_AWAL,
+            'step_number' => 1,
+            'metadata' => ['system_prompt' => self::PROMPT_AWAL],
+        ]);
+
+        return $conversation;
+    }
+
+    /**
+     * Tombol "Chat Baru": tampilkan layar percakapan kosong tanpa menyentuh database.
+     * Barisnya baru dibuat saat user mengirim jawaban pertama (lihat mulai()).
+     */
+    public function baru()
+    {
+        return view('chat', ['conversation' => null]);
+    }
+
+    /**
+     * Pesan pertama dari layar "Chat Baru": buat percakapannya sekarang,
+     * lalu proses seperti pengiriman pesan biasa.
+     */
+    public function mulai(Request $request)
+    {
+        $request->validate(['message' => ['required', 'string']]);
+
+        $conversation = self::percakapanBaru($request->user());
+        $response = $this->sendMessage($request, $conversation);
+
+        $data = $response->getData(true);
+        $data['conversation_id'] = $conversation->id;
+        $data['conversation_url'] = route('chat.show', $conversation->id);
+
+        return response()->json($data, $response->getStatusCode());
+    }
+
+    /**
+     * Riwayat percakapan bertahap untuk panel riwayat (50 per permintaan).
+     */
+    public function riwayat(Request $request)
+    {
+        $lewati = max(0, (int) $request->query('offset', 0));
+        $batas = self::RIWAYAT_PER_HALAMAN;
+
+        // Ambil satu baris ekstra untuk tahu apakah masih ada lanjutannya.
+        $baris = Conversation::with('pesanTerakhirUser')
+            ->where('user_id', $request->user()->id)
+            ->orderByDesc('updated_at')
+            ->skip($lewati)
+            ->take($batas + 1)
+            ->get();
+
+        $habis = $baris->count() <= $batas;
+        $riwayat = $baris->take($batas);
+
+        $html = view('partials.hist-list', [
+            'riwayat' => $riwayat,
+            'aktifId' => $request->query('aktif') !== null ? (int) $request->query('aktif') : null,
+        ])->render();
+
+        return response()->json([
+            'html' => $html,
+            'jumlah' => $riwayat->count(),
+            'habis' => $habis,
+        ]);
     }
 
     public function startConversation(Request $request)
@@ -51,11 +142,9 @@ class ChatController extends Controller
             Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'ai',
-                'content' => 'Halo! Senang bertemu dengan Anda. Apa proyek yang sedang Anda kerjakan hari ini?',
+                'content' => self::PERTANYAAN_AWAL,
                 'step_number' => 1,
-                'metadata' => [
-                    'system_prompt' => 'Sapa user dengan hangat, lalu gali proyek, objektif, harapan, task, dan estimasi durasi pengerjaan.',
-                ],
+                'metadata' => ['system_prompt' => self::PROMPT_AWAL],
             ]);
         }
 

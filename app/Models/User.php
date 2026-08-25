@@ -76,6 +76,25 @@ class User extends Authenticatable
         return $this->hasMany(Pekerjaan::class);
     }
 
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(Task::class);
+    }
+
+    public function reviewTasks(): HasMany
+    {
+        return $this->hasMany(Task::class, 'reviewer_id');
+    }
+
+    public function inisial(): string
+    {
+        $parts = preg_split('/\s+/', trim($this->name)) ?: [];
+        $first = mb_substr($parts[0] ?? '', 0, 1);
+        $last = count($parts) > 1 ? mb_substr($parts[count($parts) - 1], 0, 1) : '';
+
+        return mb_strtoupper($first . $last);
+    }
+
     // Helper methods
     public function isAdmin(): bool
     {

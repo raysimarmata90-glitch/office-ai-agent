@@ -23,22 +23,43 @@ class ContextEngine
         // 1. Add conversation history
         $enhancedContext['conversation_history'] = $this->formatConversationHistory($conversationHistory);
 
-        // 2. Retrieve relevant context from database (RAG)
+        // 2. Check if user is continuing a previous project
+        $enhancedContext['is_continuing_project'] = $this->isUserContinuingProject($conversationHistory);
+
+        // 3. Retrieve relevant context from database (RAG)
         $enhancedContext['retrieved_context'] = $this->retrieveRelevantContext($userInput, $baseContext);
 
-        // 3. Add user profile context
+        // 4. Add user profile context
         $enhancedContext['user_context'] = $this->getUserContext($baseContext['user_id'] ?? null);
 
-        // 4. Calculate relevance score
+        // 5. Calculate relevance score
         $enhancedContext['relevance_score'] = $this->calculateRelevanceScore(
             $userInput,
             $enhancedContext['retrieved_context']
         );
 
-        // 5. Prune context if too large
+        // 6. Prune context if too large
         $enhancedContext = $this->pruneContext($enhancedContext);
 
         return $enhancedContext;
+    }
+    
+    /**
+     * Check if user is continuing a previous project
+     */
+    protected function isUserContinuingProject(array $conversationHistory): bool
+    {
+        if (empty($conversationHistory)) {
+            return false;
+        }
+        
+        // Check last AI message
+        $lastExchange = end($conversationHistory);
+        $lastAiMessage = $lastExchange['agent_response'] ?? '';
+        
+        // If AI just showed project list, next user input is continuing a project
+        return str_contains(strtolower($lastAiMessage), 'proyek-proyek anda sebelumnya') ||
+               str_contains(strtolower($lastAiMessage), 'proyek sebelumnya');
     }
 
     /**

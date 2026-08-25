@@ -71,6 +71,29 @@
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
+
+        /* Custom Modal Styles */
+        .modal-overlay {
+            background: rgba(249, 250, 251, 0.8);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-content {
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
     </style>
 </head>
 
@@ -138,12 +161,12 @@
                                             </div>
                                         </a>
                                         <form method="POST" action="{{ route('conversations.destroy', $conv->id) }}"
-                                            class="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            onsubmit="return confirm('Apakah Anda yakin ingin menghapus percakapan ini?');">
+                                            class="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity delete-conversation-form"
+                                            data-conversation-title="{{ $conv->title }}">
                                             @csrf
                                             @method('DELETE')
-                                            <button type="submit"
-                                                class="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                                            <button type="button"
+                                                class="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded delete-conversation-btn"
                                                 title="Hapus percakapan">
                                                 <i class="fas fa-trash-alt text-xs"></i>
                                             </button>
@@ -204,6 +227,99 @@
             @yield('content')
         </main>
     @endauth
+
+    <!-- Custom Delete Confirmation Modal -->
+    <div id="deleteModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden border border-gray-200">
+            <!-- Modal Header -->
+            <div class="px-6 py-5 border-b border-gray-100">
+                <h3 class="text-xl font-semibold text-gray-900">Hapus obrolan</h3>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="px-6 py-6">
+                <p class="text-gray-700 text-base">
+                    Apakah Anda yakin ingin menghapus obrolan ini?
+                </p>
+            </div>
+            
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 flex gap-3 justify-end bg-gray-50">
+                <button type="button" id="cancelDelete"
+                    class="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-colors border border-gray-300">
+                    Batalkan
+                </button>
+                <button type="button" id="confirmDelete"
+                    class="px-6 py-2.5 text-sm font-medium text-white bg-[#dc2626] rounded-lg hover:bg-[#b91c1c] focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors">
+                    Hapus
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Custom Delete Modal Handler
+        let currentFormToSubmit = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const modal = document.getElementById('deleteModal');
+            const cancelBtn = document.getElementById('cancelDelete');
+            const confirmBtn = document.getElementById('confirmDelete');
+
+            // Handle delete button clicks
+            document.querySelectorAll('.delete-conversation-btn').forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const form = this.closest('.delete-conversation-form');
+                    
+                    currentFormToSubmit = form;
+                    showModal();
+                });
+            });
+
+            // Cancel button
+            cancelBtn.addEventListener('click', function() {
+                hideModal();
+                currentFormToSubmit = null;
+            });
+
+            // Confirm delete button
+            confirmBtn.addEventListener('click', function() {
+                if (currentFormToSubmit) {
+                    currentFormToSubmit.submit();
+                }
+                hideModal();
+            });
+
+            // Close modal when clicking outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    hideModal();
+                    currentFormToSubmit = null;
+                }
+            });
+
+            // Close modal on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                    hideModal();
+                    currentFormToSubmit = null;
+                }
+            });
+
+            function showModal() {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                document.body.style.overflow = 'hidden';
+            }
+
+            function hideModal() {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                document.body.style.overflow = '';
+            }
+        });
+    </script>
 
     @stack('scripts')
 </body>

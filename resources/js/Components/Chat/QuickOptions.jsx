@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 /**
  * QuickOptions Component
  * Menampilkan pilihan cepat untuk user dengan style mirip Claude Chat
- * 
+ *
  * @param {Object} props
  * @param {string} props.question - Pertanyaan dari AI
  * @param {Function} props.onSelect - Callback ketika opsi dipilih
@@ -13,6 +13,8 @@ import React, { useState, useEffect } from 'react';
  */
 export default function QuickOptions({
     question,
+    options: responseOptions = [],
+    questionType,
     onSelect,
     currentStep = 1,
     totalSteps = 3,
@@ -21,15 +23,27 @@ export default function QuickOptions({
     const [showCustomInput, setShowCustomInput] = useState(false);
     const [customValue, setCustomValue] = useState('');
     const [options, setOptions] = useState([]);
+    const structuredQuestionTypes = [
+        'objective', 'expectation', 'current_task', 'task_detail',
+        'task_challenge', 'estimation', 'priority', 'other_project', 'confirmation',
+        'project_selection'
+    ];
 
     useEffect(() => {
-        const detectedOptions = getOptionsForQuestion(question);
+        const detectedOptions = responseOptions.length > 0
+            ? responseOptions
+            : getOptionsForQuestion(question);
         setOptions(detectedOptions);
-        setShowCustomInput(detectedOptions.length === 0);
-    }, [question]);
+        setShowCustomInput(detectedOptions.length === 0 && !structuredQuestionTypes.includes(questionType));
+    }, [question, questionType, responseOptions]);
 
     const getOptionsForQuestion = (content) => {
         const q = content.toLowerCase();
+
+        // Pertanyaan pembuka proyek
+        if (/proyek.*(kerjakan|dikerjakan).*hari ini/.test(q)) {
+            return ['Proyek Baru', 'Lanjut Proyek Sebelumnya'];
+        }
 
         // Jenis proposal
         if (/(jenis|tipe).*proposal|proposal.*(jenis|tipe)/.test(q)) {
@@ -86,17 +100,17 @@ export default function QuickOptions({
 
         // Konfirmasi
         if (/sudah sesuai|sudah benar|konfirmasi|setuju/.test(q)) {
-            return ['Ya, sudah sesuai', 'Belum sesuai'];
-        }
-
-        // Prioritas
-        if (/(prioritas|prioritas utama)/.test(q)) {
-            return ['Ya, ini prioritas utama', 'Bukan prioritas utama'];
+            return ['Iya', 'Tidak'];
         }
 
         // Proyek lain
         if (/proyek lain/.test(q)) {
             return ['Ya, ada proyek lain', 'Tidak ada proyek lain'];
+        }
+
+        // Prioritas
+        if (/(prioritas|prioritas utama)/.test(q)) {
+            return ['Ya, ini prioritas utama', 'Bukan prioritas utama'];
         }
 
         return [];
@@ -167,7 +181,7 @@ export default function QuickOptions({
                     ))}
 
                     {/* Something else option */}
-                    <button
+                    {!structuredQuestionTypes.includes(questionType) && <button
                         type="button"
                         onClick={() => setShowCustomInput(true)}
                         className="group relative flex items-center gap-3 w-full rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -188,7 +202,7 @@ export default function QuickOptions({
                         <span className="flex-1 text-sm text-gray-600 group-hover:text-indigo-700">
                             Something else
                         </span>
-                    </button>
+                    </button>}
                 </div>
             )}
 

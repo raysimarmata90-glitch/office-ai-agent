@@ -14,52 +14,64 @@
         </div>
 
         @if ($pekerjaan->count() > 0)
-            <!-- Pekerjaan Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                @foreach ($pekerjaan as $item)
-                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-                        <!-- Header -->
-                        <div class="flex items-start justify-between mb-4">
-                            <div class="flex items-center space-x-3 flex-1 min-w-0">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                                    style="background-color: {{ $user->department->color }}20;">
-                                    <i class="fas fa-folder text-lg" style="color: {{ $user->department->color }};"></i>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <h3 class="font-semibold text-gray-900 truncate">{{ $item->nama_projek }}</h3>
-                                    <p class="text-xs text-gray-500">{{ $item->division ?? 'No Division' }}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Description -->
-                        <p class="text-sm text-gray-700 mb-4 line-clamp-3 leading-relaxed">
-                            {{ $item->pekerjaan }}
-                        </p>
-
-                        <!-- Footer -->
-                        <div class="flex items-center justify-between pt-4 border-t border-gray-100">
-                            <div class="flex items-center space-x-3">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                    {{ $item->status === 'on going' ? 'bg-blue-100 text-blue-800' : '' }}
-                                    {{ $item->status === 'completed' ? 'bg-green-100 text-green-800' : '' }}
-                                    {{ $item->status === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}">
-                                    {{ ucfirst($item->status) }}
-                                </span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                    {{ $item->kategori }}
-                                </span>
-                            </div>
-                            <span class="text-xs text-gray-500 font-mono">
-                                {{ $item->created_at?->format('d M Y') ?? '-' }}
-                            </span>
-                        </div>
-                    </div>
-                @endforeach
+            <!-- Pekerjaan Table -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    No.</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Nama Projek</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Pekerjaan</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Kategori</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Tanggal</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            @foreach ($pekerjaan as $item)
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 text-sm text-gray-500 align-top whitespace-nowrap">
+                                        {{ $pekerjaan->firstItem() + $loop->index }}
+                                    </td>
+                                    <td class="px-6 py-4 text-sm font-medium text-gray-900 align-top min-w-[180px]">
+                                        {{ $item->nama_projek }}
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-700 align-top min-w-[300px] max-w-[500px]">
+                                        <div class="whitespace-pre-line break-words">{{ $item->pekerjaan }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 align-top whitespace-nowrap">
+                                        <span
+                                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                            {{ $item->status === 'on going' ? 'bg-blue-100 text-blue-800' : '' }}
+                                            {{ $item->status === 'completed' ? 'bg-green-100 text-green-800' : '' }}">
+                                            {{ ucfirst($item->status ?? '-') }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 align-top whitespace-nowrap">
+                                        <span
+                                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                            {{ $item->kategori ?? '-' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500 align-top whitespace-nowrap">
+                                        {{ $item->created_at?->format('d M Y H:i') ?? '-' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Pagination -->
-            <div class="mt-8">
+            <div class="mt-6">
                 {{ $pekerjaan->links() }}
             </div>
         @else

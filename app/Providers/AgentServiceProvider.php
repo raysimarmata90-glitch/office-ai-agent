@@ -7,6 +7,7 @@ use App\Services\Agent\SystemIntuition;
 use App\Services\Agent\Context\ContextEngine;
 use App\Services\Agent\ModelInterface;
 use App\Services\Agent\OpenAIModel;
+use App\Services\Agent\OptionGenerator;
 use App\Services\Agent\Tools\ToolRegistry;
 use Illuminate\Support\ServiceProvider;
 
@@ -20,6 +21,11 @@ class AgentServiceProvider extends ServiceProvider
         // Register System Intuition
         $this->app->singleton(SystemIntuition::class, function ($app) {
             return new SystemIntuition();
+        });
+
+        // Register Option Generator
+        $this->app->singleton(OptionGenerator::class, function ($app) {
+            return new OptionGenerator();
         });
 
         // Register Context Engine

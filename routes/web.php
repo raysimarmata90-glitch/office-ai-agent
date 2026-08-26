@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\Admin\ProjectAdminController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ProfilController;
 use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
 
@@ -39,8 +40,18 @@ Route::middleware('auth')->group(function () {
     // Tugas (user)
     Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
     Route::get('/tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
+    Route::patch('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
+    Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
+    Route::delete('/evidence/{evidence}', [TaskController::class, 'hapusEvidence'])->name('tasks.evidence.hapus');
     Route::patch('/tasks/{task}/status', [TaskController::class, 'updateStatus'])->name('tasks.status');
     Route::get('/evidence/{evidence}', [TaskController::class, 'evidence'])->name('tasks.evidence');
+
+    // Profil pengguna
+    Route::get('/profil', [ProfilController::class, 'show'])->name('profil.show');
+    Route::post('/profil', [ProfilController::class, 'update'])->name('profil.update');
+    Route::delete('/profil/foto', [ProfilController::class, 'hapusFoto'])->name('profil.foto.hapus');
+    Route::post('/profil/sandi', [ProfilController::class, 'sandi'])->name('profil.sandi');
+    Route::delete('/profil/sesi/{sesi}', [ProfilController::class, 'keluarSesi'])->name('profil.sesi.keluar');
 
     // Chat Routes
     Route::get('/chat/baru', [ChatController::class, 'baru'])->name('chat.baru');
@@ -59,9 +70,15 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::patch('/pekerjaan/{pekerjaan}', [AdminDashboardController::class, 'updatePekerjaan'])->name('pekerjaan.update');
     Route::get('/users', [AdminDashboardController::class, 'users'])->name('users');
     Route::post('/users/{user}/toggle-status', [AdminDashboardController::class, 'toggleUserStatus'])->name('users.toggle-status');
+    Route::get('/users/{user}', [AdminDashboardController::class, 'showUser'])->name('users.show');
+    Route::patch('/users/{user}', [AdminDashboardController::class, 'updateUser'])->name('users.update');
+    Route::delete('/users/{user}', [AdminDashboardController::class, 'destroyUser'])->name('users.destroy');
+    Route::post('/users/{user}/sandi', [AdminDashboardController::class, 'sandiUser'])->name('users.sandi');
+    Route::delete('/users/{user}/foto', [AdminDashboardController::class, 'hapusFotoUser'])->name('users.foto.hapus');
+    Route::delete('/users/{user}/sesi/{sesi}', [AdminDashboardController::class, 'keluarSesiUser'])->name('users.sesi.keluar');
     Route::get('/conversations', [AdminDashboardController::class, 'conversations'])->name('conversations');
-    Route::get('/chat-histories', [AdminDashboardController::class, 'chatHistories'])->name('chat.histories');
     Route::get('/pekerjaan', [AdminDashboardController::class, 'pekerjaan'])->name('pekerjaan');
+    Route::get('/kanban', [AdminDashboardController::class, 'kanbanFeed'])->name('kanban');
     Route::get('/conversations/{conversation}', [AdminDashboardController::class, 'conversationDetail'])->name('conversation.detail');
     Route::get('/laporan', [AdminDashboardController::class, 'laporan'])->name('laporan');
     Route::get('/laporan/ekspor', [AdminDashboardController::class, 'ekspor'])->name('laporan.ekspor');

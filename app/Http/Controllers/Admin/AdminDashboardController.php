@@ -4,14 +4,18 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
-use App\Models\ChatHistory;
 use App\Models\Department;
 use App\Models\Pekerjaan;
 use App\Models\Project;
+use App\Models\Role;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\SesiPerangkat;
 use App\Services\TaskMetrics;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AdminDashboardController extends Controller
@@ -47,72 +51,119 @@ class AdminDashboardController extends Controller
             ],
         ];
 
-        $overviewProyek = $projects->map(function (Project $p) use ($ringkas) {
-            $r = TaskMetrics::ringkasStatus($p->tasks);
-            $total = max(1, $ringkas['total']);
+        $overviewProyek = $projects->map(fn (Project $p) => [
+            'id' => $p->id,
+            'nama' => $p->nama,
+            'warna' => $p->warna,
+            'tugas' => $p->tasks->count(),
+            'pct' => TaskMetrics::ringkasStatus($p->tasks)['pct'],
+            'kontributor' => $p->tasks->pluck('user_id')->unique()->count(),
+            'segmen' => TaskMetrics::segmen($p->tasks),
+        ])->sortByDesc('tugas')->values();
 
-            return [
-                'id' => $p->id,
-                'nama' => $p->nama,
-                'warna' => $p->warna,
-                'berisiko' => $p->berisiko,
-                'tugas' => $r['total'],
-                'pct' => $r['pct'],
-                'kontributor' => $p->tasks->pluck('user_id')->unique()->count(),
-                'wDone' => $r['done'] / $total * 100,
-                'wProgress' => $r['progress'] / $total * 100,
-                'wTodo' => $r['todo'] / $total * 100,
-            ];
-        })->sortByDesc('tugas')->values();
-
-        $overviewUser = $tasks->groupBy('user_id')->map(function ($items) use ($ringkas) {
-            $r = TaskMetrics::ringkasStatus($items);
-            $total = max(1, $ringkas['total']);
+        $overviewUser = $tasks->groupBy('user_id')->map(function ($items) {
             $u = $items->first()->user;
 
             return [
                 'nama' => $u?->name ?? 'Tanpa Nama',
                 'inisial' => $u?->inisial() ?? '?',
-                'tugas' => $r['total'],
-                'pct' => $r['pct'],
+                'warna' => $u ? $u->warnaAvatar() : ['bg' => '#e8edf4', 'text' => '#475569'],
+                'tugas' => $items->count(),
+                'pct' => TaskMetrics::ringkasStatus($items)['pct'],
                 'proyek' => $items->pluck('project_id')->unique()->count(),
-                'wDone' => $r['done'] / $total * 100,
-                'wProgress' => $r['progress'] / $total * 100,
-                'wTodo' => $r['todo'] / $total * 100,
+                'segmen' => TaskMetrics::segmen($items),
             ];
         })->sortByDesc('tugas')->take(8)->values();
 
-        $kanban = TaskMetrics::kanban($tasks->sortByDesc('created_at')->values());
-
-        $bulan = TaskMetrics::bulanTimeline($tasks, 6);
-        $gantt = $projects->map(function (Project $p) use ($bulan) {
-            $r = TaskMetrics::ringkasStatus($p->tasks);
-
-            return [
-                'nama' => $p->nama,
-                'warna' => $p->warna,
-                'pct' => $r['pct'],
-                'pos' => TaskMetrics::posisiBar($p->mulai, $p->selesai, $bulan),
-            ];
-        })->filter(fn ($g) => $g['pos'] !== null)->values();
-
-        $aktivitas = Task::with(['user', 'project'])
-            ->orderByDesc('updated_at')
-            ->take(6)
-            ->get()
+        // Timeline memakai komponen yang sama dengan halaman Pekerjaan Saya.
+        $timeline = $tasks->filter(fn ($t) => $t->mulai && $t->selesai)
+            ->sortBy('mulai')
             ->map(fn (Task $t) => [
-                'inisial' => $t->user?->inisial() ?? '?',
-                'siapa' => $t->user?->name ?? 'Sistem',
-                'apa' => $t->statusLabel() . ' · ' . $t->judul,
-                'waktu' => $t->updated_at?->diffForHumans(),
-            ]);
+                'id' => $t->id,
+                'judul' => $t->judul,
+                'proyek' => $t->project?->nama ?? 'Tanpa Proyek',
+                'status_key' => $t->status,
+                'status' => $t->statusLabel(),
+                'prioritas' => $t->prioritas,
+                'reviewer' => $t->user?->name,
+                'evidence' => null,
+                'warna' => Task::titikStatus($t->status),
+                'mulai' => $t->mulai->toDateString(),
+                'selesai' => $t->selesai->toDateString(),
+                'progres' => 100,
+            ])
+            ->values();
 
-        $berisiko = $projects->where('berisiko', true)->pluck('nama')->values();
+        $semuaUser = User::where('is_active', true)->orderBy('name')->get();
 
         return view('admin.dashboard', compact(
-            'user', 'kpi', 'overviewProyek', 'overviewUser', 'kanban',
-            'bulan', 'gantt', 'aktivitas', 'ringkas', 'berisiko', 'projects'
+            'user', 'kpi', 'overviewProyek', 'overviewUser',
+            'timeline', 'ringkas', 'projects', 'semuaUser'
         ));
+    }
+
+    /** Jumlah kartu yang dikirim sekali muat pada kanban dashboard. */
+    public const KANBAN_PER_MUAT = 50;
+
+    /**
+     * Satu kolom kanban dashboard, dimuat bertahap. Seluruh saringan dikerjakan
+     * di server supaya kartu yang belum termuat pun ikut tersaring — filter di
+     * sisi klien hanya akan menyaring apa yang kebetulan sudah tampil.
+     */
+    public function kanbanFeed(Request $request)
+    {
+        $status = (string) $request->query('status', '');
+        abort_unless(array_key_exists($status, Task::daftarStatus()), 404);
+
+        $offset = max(0, (int) $request->query('offset', 0));
+        $batas = self::KANBAN_PER_MUAT;
+
+        $q = Task::with(['project', 'user'])
+            ->where('status', $status)
+            ->when($request->filled('q'), function ($w) use ($request) {
+                $kunci = '%' . mb_strtolower(trim((string) $request->query('q'))) . '%';
+                $w->where(function ($x) use ($kunci) {
+                    $x->whereRaw('LOWER(judul) LIKE ?', [$kunci])
+                        ->orWhereHas('project', fn ($p) => $p->whereRaw('LOWER(nama) LIKE ?', [$kunci]))
+                        ->orWhereHas('user', fn ($u) => $u->whereRaw('LOWER(name) LIKE ?', [$kunci]));
+                });
+            })
+            ->when($request->filled('proyek'), fn ($w) => $w->whereHas(
+                'project',
+                fn ($p) => $p->where('nama', $request->query('proyek'))
+            ))
+            ->when($request->filled('prioritas'), fn ($w) => $w->where('prioritas', $request->query('prioritas')))
+            ->when($request->filled('user'), fn ($w) => $w->whereHas(
+                'user',
+                fn ($u) => $u->where('name', $request->query('user'))
+            ));
+
+        // Rentang waktu: tugas ikut bila jadwalnya beririsan dengan jendela yang
+        // dipilih. Tugas tanpa tanggal tidak pernah disembunyikan.
+        if ($request->filled('dari') && $request->filled('sampai')) {
+            $dari = $request->date('dari');
+            $sampai = $request->date('sampai');
+            $q->where(function ($w) use ($dari, $sampai) {
+                $w->whereNull('mulai')
+                    ->orWhereNull('selesai')
+                    ->orWhere(fn ($x) => $x->where('selesai', '>=', $dari)->where('mulai', '<=', $sampai));
+            });
+        }
+
+        $total = (clone $q)->count();
+        $items = $q->orderByDesc('created_at')->orderByDesc('id')
+            ->skip($offset)->take($batas)->get();
+
+        $html = $items
+            ->map(fn (Task $t) => view('partials.kanban-card', ['t' => $t])->render())
+            ->implode('');
+
+        return response()->json([
+            'html' => $html,
+            'jumlah' => $items->count(),
+            'total' => $total,
+            'habis' => $offset + $items->count() >= $total,
+        ]);
     }
 
     public function users(Request $request)
@@ -130,6 +181,8 @@ class AdminDashboardController extends Controller
                     'id' => $u->id,
                     'nama' => $u->name,
                     'inisial' => $u->inisial(),
+                    'foto' => $u->fotoUrl(),
+                    'warna' => $u->warnaAvatar(),
                     'email' => $u->email,
                     'role' => $u->role?->display_name ?? '-',
                     'departemen' => $u->department?->name ?? '-',
@@ -141,8 +194,135 @@ class AdminDashboardController extends Controller
 
         $projects = Project::orderBy('nama')->get();
         $semuaUser = User::where('is_active', true)->orderBy('name')->get();
+        $daftarRole = Role::orderBy('display_name')->get(['id', 'name', 'display_name', 'department_id']);
+        $daftarDep = Department::orderBy('name')->get(['id', 'name']);
 
-        return view('admin.users', compact('users', 'view', 'projects', 'semuaUser'));
+        return view('admin.users', compact('users', 'view', 'projects', 'semuaUser', 'daftarRole', 'daftarDep'));
+    }
+
+    /** Admin boleh memperbarui data pengguna lain, termasuk role dan departemennya. */
+    public function updateUser(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone' => ['nullable', 'string', 'max:32'],
+            'bio' => ['nullable', 'string', 'max:500'],
+            'role_id' => ['required', 'exists:roles,id'],
+            'department_id' => ['nullable', 'exists:departments,id'],
+            'is_active' => ['nullable', 'boolean'],
+        ], [
+            'email.unique' => 'Email ini sudah dipakai akun lain.',
+        ]);
+
+        $validated['is_active'] = $request->boolean('is_active');
+
+        // Admin yang sedang dipakai tidak boleh menonaktifkan dirinya sendiri.
+        if ($user->is(auth()->user()) && ! $validated['is_active']) {
+            return response()->json([
+                'message' => 'Akun yang sedang Anda pakai tidak bisa dinonaktifkan.',
+            ], 422);
+        }
+
+        $user->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Data ' . $user->name . ' berhasil diperbarui.',
+        ]);
+    }
+
+    public function destroyUser(Request $request, User $user)
+    {
+        if ($user->is(auth()->user())) {
+            return response()->json(['message' => 'Anda tidak bisa menghapus akun sendiri.'], 422);
+        }
+
+        if ($user->tasks()->exists()) {
+            return response()->json([
+                'message' => 'Pengguna ini masih punya tugas. Pindahkan tugasnya lebih dulu, atau nonaktifkan akunnya.',
+            ], 422);
+        }
+
+        $nama = $user->name;
+        $user->delete();
+
+        return response()->json(['success' => true, 'pesan' => 'Pengguna ' . $nama . ' dihapus.']);
+    }
+
+    /** Detail satu pengguna untuk mengisi form ubah. */
+    public function showUser(User $user)
+    {
+        return response()->json([
+            'id' => $user->id,
+            'nama' => $user->name,
+            'email' => $user->email,
+            'telepon' => $user->phone,
+            'bio' => $user->bio,
+            'role_id' => $user->role_id,
+            'department_id' => $user->department_id,
+            'aktif' => (bool) $user->is_active,
+            'inisial' => $user->inisial(),
+            'foto' => $user->fotoUrl(),
+            'diri_sendiri' => $user->is(auth()->user()),
+            'sesi' => SesiPerangkat::daftar($user->id, $user->is(auth()->user()) ? session()->getId() : null),
+        ]);
+    }
+
+    /**
+     * Admin mengganti password pengguna lain. Password lama tidak diminta —
+     * admin memang tidak memilikinya — jadi seluruh sesi pengguna itu dibuang.
+     */
+    public function sandiUser(Request $request, User $user)
+    {
+        $request->validate([
+            'sandi' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'sandi.min' => 'Password baru minimal 8 karakter.',
+            'sandi.confirmed' => 'Konfirmasi password tidak sama.',
+        ]);
+
+        $user->update(['password' => Hash::make($request->input('sandi'))]);
+
+        DB::table('sessions')
+            ->where('user_id', $user->id)
+            ->when($user->is(auth()->user()), fn ($q) => $q->where('id', '!=', session()->getId()))
+            ->delete();
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Password ' . $user->name . ' diperbarui. Sesi lamanya dikeluarkan.',
+            'sesi' => SesiPerangkat::daftar($user->id, $user->is(auth()->user()) ? session()->getId() : null),
+        ]);
+    }
+
+    public function hapusFotoUser(User $user)
+    {
+        if ($user->foto) {
+            Storage::disk('public')->delete($user->foto);
+            $user->update(['foto' => null]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Foto profil dihapus.',
+            'inisial' => $user->fresh()->inisial(),
+        ]);
+    }
+
+    public function keluarSesiUser(User $user, string $sesi)
+    {
+        if ($user->is(auth()->user()) && $sesi === session()->getId()) {
+            return response()->json(['message' => 'Sesi ini sedang Anda pakai.'], 422);
+        }
+
+        DB::table('sessions')->where('user_id', $user->id)->where('id', $sesi)->delete();
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Perangkat berhasil dikeluarkan.',
+            'sesi' => SesiPerangkat::daftar($user->id, $user->is(auth()->user()) ? session()->getId() : null),
+        ]);
     }
 
     public function updatePekerjaan(Request $request, Pekerjaan $pekerjaan)
@@ -175,20 +355,24 @@ class AdminDashboardController extends Controller
 
     public function conversations()
     {
-        $conversations = Conversation::with(['user', 'department', 'messages'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        // Semua baris dikirim sekali; pencarian, filter, urutan, dan halaman
+        // ditangani komponen tabel yang sama dengan halaman lain.
+        $conversations = Conversation::query()
+            ->with(['user', 'department', 'pesanDetail'])
+            ->withCount('messages')
+            ->orderByDesc('updated_at')
+            ->get();
 
-        return view('admin.conversations', compact('conversations'));
-    }
+        $ringkas = [
+            'total' => $conversations->count(),
+            'aktif' => $conversations->where('status', 'active')->count(),
+            'selesai' => $conversations->where('status', 'completed')->count(),
+            'pesan' => (int) $conversations->sum('messages_count'),
+        ];
 
-    public function chatHistories()
-    {
-        $histories = ChatHistory::with(['conversation', 'user'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(30);
+        $departemen = Department::orderBy('name')->get(['id', 'name']);
 
-        return view('admin.chat-histories', compact('histories'));
+        return view('admin.conversations', compact('conversations', 'ringkas', 'departemen'));
     }
 
     public function pekerjaan()
@@ -200,7 +384,15 @@ class AdminDashboardController extends Controller
         $projects = Project::orderBy('nama')->get();
         $semuaUser = User::where('is_active', true)->orderBy('name')->get();
 
-        return view('admin.pekerjaan', compact('tasks', 'projects', 'semuaUser'));
+        // Pilihan filter diambil dari tugas yang ada, bukan seluruh pengguna,
+        // supaya tidak ada opsi yang pasti tidak menghasilkan baris apa pun.
+        $daftarPemilik = $tasks->pluck('user.name')->filter()->unique()->sort()->values();
+        $daftarReviewer = $tasks->pluck('reviewer.name')->filter()->unique()->sort()->values();
+        $tanpaReviewer = $tasks->whereNull('reviewer_id')->count();
+
+        return view('admin.pekerjaan', compact(
+            'tasks', 'projects', 'semuaUser', 'daftarPemilik', 'daftarReviewer', 'tanpaReviewer'
+        ));
     }
 
     public function laporan(Request $request)
@@ -235,6 +427,7 @@ class AdminDashboardController extends Controller
                 'done' => $r['done'],
                 'progress' => $r['progress'],
                 'todo' => $r['todo'],
+                'segmen' => TaskMetrics::segmen($items),
                 'pct' => $r['pct'],
             ];
         })->sortByDesc('total')->values();
@@ -250,6 +443,7 @@ class AdminDashboardController extends Controller
                 'done' => $r['done'],
                 'progress' => $r['progress'],
                 'todo' => $r['todo'],
+                'segmen' => TaskMetrics::segmen($items),
                 'pct' => $r['pct'],
             ];
         })->sortByDesc('total')->values();
@@ -303,7 +497,20 @@ class AdminDashboardController extends Controller
 
     public function conversationDetail(Conversation $conversation)
     {
-        $conversation->load(['user', 'department', 'messages']);
-        return view('admin.conversation-detail', compact('conversation'));
+        $conversation->load(['user', 'department']);
+
+        $pesan = $conversation->messages()->orderBy('created_at')->get();
+
+        // Tugas yang lahir dari percakapan ini, dicocokkan lewat nama proyeknya.
+        $tugas = Task::with('project')
+            ->where('user_id', $conversation->user_id)
+            ->whereHas('project', fn ($q) => $q->whereRaw(
+                'LOWER(nama) = ?',
+                [mb_strtolower(preg_replace('/^Proyek:\s*/i', '', (string) $conversation->title))]
+            ))
+            ->orderByDesc('created_at')
+            ->get();
+
+        return view('admin.conversation-detail', compact('conversation', 'pesan', 'tugas'));
     }
 }

@@ -1,102 +1,127 @@
 @extends('layouts.admin')
+@section('title', 'Transkrip Percakapan')
+@section('page-title', $conversation->namaProyek())
+@section('page-sub', ($conversation->user?->name ?? '–') . ' · ' . $conversation->created_at->translatedFormat('d F Y, H:i'))
 
-@section('title', 'Conversation Detail #' . $conversation->id)
+@section('topbar-actions')
+<a href="{{ route('admin.conversations') }}" class="btn">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+Kembali
+</a>
+@endsection
 
 @section('content')
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="mb-6">
-            <a href="{{ route('admin.conversations') }}" class="text-indigo-600 hover:text-indigo-800">
-                <i class="fas fa-arrow-left mr-1"></i>Back to Conversations
-            </a>
-        </div>
+@php($aktif = $conversation->status === 'active')
 
-        <!-- Conversation Info -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h1 class="text-2xl font-bold text-gray-900 mb-4">Conversation #{{ $conversation->id }}</h1>
+{{-- Satu kartu berisi identitas percakapan, tugas yang dihasilkan, lalu angka ringkasnya --}}
+<div class="card">
+<div class="card-head">
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>Informasi Percakapan</div>
+<div class="card-desc">Identitas percakapan, tugas yang dihasilkannya, dan ringkasan angkanya.</div>
+</div>
+<div class="card-body">
+<div class="drw-row"><div class="drw-k">Pengguna</div><div class="drw-v">
+@php($wa = $conversation->user ? $conversation->user->warnaAvatar() : ['bg' => 'var(--line3)', 'text' => 'var(--muted)'])
+<span style="display:inline-flex;align-items:center;gap:8px">
+<span class="avatar xs" style="background:{{ $wa['bg'] }};color:{{ $wa['text'] }}">{{ $conversation->user?->inisial() ?? '?' }}</span>
+{{ $conversation->user?->name ?? '–' }} · {{ $conversation->user?->email }}
+</span>
+</div></div>
+<div class="drw-row"><div class="drw-k">Departemen</div><div class="drw-v">
+@if($conversation->department)
+<span class="badge" style="background:{{ $conversation->department->color }}1f;color:{{ $conversation->department->color }}">{{ $conversation->department->name }}</span>
+@else – @endif
+</div></div>
+<div class="drw-row"><div class="drw-k">Status</div><div class="drw-v">
+<span class="badge" style="background:{{ $aktif ? 'var(--st-prog-bg)' : 'var(--st-done-bg)' }};color:{{ $aktif ? 'var(--st-prog)' : 'var(--st-done)' }}">{{ $aktif ? 'Sedang Berjalan' : 'Selesai' }}</span>
+</div></div>
+<div class="drw-row"><div class="drw-k">Judul</div><div class="drw-v">{{ $conversation->title }}</div></div>
+<div class="drw-row"><div class="drw-k">Dimulai</div><div class="drw-v">{{ $conversation->created_at?->translatedFormat('d F Y, H:i') }}</div></div>
+<div class="drw-row"><div class="drw-k">Diperbarui</div><div class="drw-v">{{ $conversation->updated_at?->translatedFormat('d F Y, H:i') }}</div></div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <p class="text-sm text-gray-500">User</p>
-                    <p class="font-medium">{{ $conversation->user->name }}</p>
-                    <p class="text-sm text-gray-500">{{ $conversation->user->email }}</p>
-                </div>
+<div class="drw-sec">Tugas yang Dihasilkan <span class="drw-n">{{ $tugas->count() }}</span></div>
+@if($tugas->count())
+<div class="drw-ev">
+@foreach($tugas as $t)
+@php($w = \App\Models\Task::warnaStatus($t->status))
+@php($pr = \App\Models\Task::warnaPrioritas($t->prioritas))
+<div class="drw-evi">
+<span class="i-up-fi" style="background:{{ $w['bg'] }};color:{{ $w['text'] }}">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/></svg>
+</span>
+<span class="i-up-meta">
+<span class="i-up-fn" title="{{ $t->judul }}">{{ $t->judul }}</span>
+<span class="i-up-fs">{{ $t->project?->nama ?? 'Tanpa proyek' }} · {{ $t->mulai?->translatedFormat('d M y') }} – {{ $t->selesai?->translatedFormat('d M y') }}</span>
+</span>
+<span class="badge" style="background:{{ $w['bg'] }};color:{{ $w['text'] }}">{{ $t->statusLabel() }}</span>
+<span class="badge" style="background:{{ $pr['bg'] }};color:{{ $pr['text'] }}">{{ $t->prioritas }}</span>
+</div>
+@endforeach
+</div>
+@else
+<div class="kosong" style="min-height:120px">
+<span class="kosong-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></span>
+<span class="kosong-t">Belum menghasilkan tugas</span>
+<span class="kosong-s">Tugas dicatat setelah percakapan diselesaikan.</span>
+</div>
+@endif
 
-                <div>
-                    <p class="text-sm text-gray-500">Department</p>
-                    <span class="inline-flex px-3 py-1 rounded-full text-sm font-semibold"
-                        style="background-color: {{ $conversation->department->color }}20; color: {{ $conversation->department->color }}">
-                        {{ $conversation->department->name }}
-                    </span>
-                </div>
+<div class="drw-sec">Ringkasan</div>
+<div class="ringkas-grid">
+@php($rk = [
+    ['Total Pesan', $pesan->count(), 'netral', '<path d="M4 6h16M4 12h10M4 18h7"/>'],
+    ['Jawaban Pengguna', $pesan->where('sender_type', 'user')->count(), 'prog', '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'],
+    ['Balasan Agent', $pesan->where('sender_type', '!=', 'user')->count(), 'todo', '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'],
+    ['Tugas Tercatat', $tugas->count(), 'done', '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/>'],
+])
+@foreach($rk as [$label, $nilai, $warna, $ikon])
+<div class="ringkas-item">
+<span class="kpi-ico {{ $warna }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{!! $ikon !!}</svg></span>
+<span class="ringkas-m"><span class="ringkas-v">{{ $nilai }}</span><span class="ringkas-l">{{ $label }}</span></span>
+</div>
+@endforeach
+</div>
+</div>
+</div>
 
-                <div>
-                    <p class="text-sm text-gray-500">Status</p>
-                    <span
-                        class="inline-flex px-3 py-1 rounded-full text-sm font-semibold {{ $conversation->status === 'active' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800' }}">
-                        {{ ucfirst($conversation->status) }}
-                    </span>
-                </div>
-
-                <div>
-                    <p class="text-sm text-gray-500">Progress</p>
-                    <p class="font-medium">Step {{ $conversation->current_step }}</p>
-                </div>
-
-                <div>
-                    <p class="text-sm text-gray-500">Created At</p>
-                    <p class="font-medium">{{ $conversation->created_at->format('d M Y H:i') }}</p>
-                </div>
-
-                <div>
-                    <p class="text-sm text-gray-500">Last Updated</p>
-                    <p class="font-medium">{{ $conversation->updated_at->format('d M Y H:i') }}</p>
-                </div>
-            </div>
-        </div>
-
-        @if (!empty($conversation->metadata['daily_activity']))
-            <div class="bg-white rounded-lg shadow p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-900 mb-4">
-                    <i class="fas fa-clipboard-check mr-2"></i>Daily Activity JSON
-                </h2>
-                <pre class="bg-gray-900 text-green-300 rounded-lg p-4 overflow-x-auto text-sm">{{ json_encode($conversation->metadata['daily_activity'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
-            </div>
-        @endif
-
-        <!-- Messages -->
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">
-                <i class="fas fa-comments mr-2"></i>Messages ({{ $conversation->messages->count() }})
-            </h2>
-
-            <div class="space-y-4">
-                @foreach ($conversation->messages as $message)
-                    <div class="flex {{ $message->isFromUser() ? 'justify-end' : 'justify-start' }}">
-                        <div
-                            class="flex items-start space-x-2 max-w-xl {{ $message->isFromUser() ? 'flex-row-reverse space-x-reverse' : '' }}">
-                            <div
-                                class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 {{ $message->isFromUser() ? 'bg-indigo-600' : 'bg-gray-300' }}">
-                                <i
-                                    class="fas {{ $message->isFromUser() ? 'fa-user' : 'fa-robot' }} text-white text-sm"></i>
-                            </div>
-                            <div
-                                class="bg-{{ $message->isFromUser() ? 'indigo-600' : 'gray-100' }} text-{{ $message->isFromUser() ? 'white' : 'gray-900' }} rounded-lg px-4 py-3 shadow">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span
-                                        class="text-xs font-semibold {{ $message->isFromUser() ? 'text-indigo-200' : 'text-gray-500' }}">
-                                        {{ $message->isFromUser() ? 'User' : 'AI Agent' }} - Step
-                                        {{ $message->step_number }}
-                                    </span>
-                                </div>
-                                <p class="text-sm whitespace-pre-wrap">{{ $message->content }}</p>
-                                <p class="text-xs mt-1 {{ $message->isFromUser() ? 'text-indigo-200' : 'text-gray-400' }}">
-                                    {{ $message->created_at->format('d M Y H:i') }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </div>
+<div class="card" style="margin-top:14px">
+<div class="card-head">
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span>Transkrip</div>
+<div class="card-desc">{{ $pesan->count() }} pesan, urut dari yang paling awal.</div>
+</div>
+<div class="card-body">
+@if($pesan->isEmpty())
+<div class="kosong">
+<span class="kosong-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span>
+<span class="kosong-t">Belum ada pesan</span>
+<span class="kosong-s">Percakapan ini belum memiliki isi.</span>
+</div>
+@else
+<div class="trx">
+@foreach($pesan as $m)
+@php($dariUser = $m->sender_type === 'user')
+<div class="trx-row {{ $dariUser ? 'user' : 'ai' }}">
+@if($dariUser)
+@php($wa = $conversation->user ? $conversation->user->warnaAvatar() : ['bg' => 'var(--line3)', 'text' => 'var(--muted)'])
+<span class="trx-av" style="background:{{ $wa['bg'] }};color:{{ $wa['text'] }}">{{ $conversation->user?->inisial() ?? '?' }}</span>
+@else
+<span class="trx-av ai"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></span>
+@endif
+<div class="trx-in">
+<div class="trx-nama">{{ $dariUser ? ($conversation->user?->name ?? 'Pengguna') : 'INAai Agent' }}</div>
+<div class="trx-bub">{{ $m->content }}</div>
+@php($opsi = $m->metadata['options'] ?? [])
+@if(! $dariUser && is_array($opsi) && count($opsi))
+<div class="trx-opsi">
+@foreach($opsi as $o)<span>{{ $o }}</span>@endforeach
+</div>
+@endif
+<div class="trx-t">{{ $m->created_at?->translatedFormat('d M Y, H:i') }}</div>
+</div>
+</div>
+@endforeach
+</div>
+@endif
+</div>
+</div>
 @endsection

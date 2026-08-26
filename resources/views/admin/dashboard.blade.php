@@ -8,57 +8,220 @@
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>
 Ekspor Laporan
 </a>
+<button class="btn" type="button" id="segarkanHalaman" title="Muat ulang seluruh data halaman">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+Segarkan
+</button>
 <button class="btn btn-primary" type="button" data-open-assign>
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>
 Assign Tugas
 </button>
+@include('partials.modal-assign')
+@include('partials.drawer-tugas')
 @endsection
+
+@push('script')
+<script>
+(function(){
+if(!window.InaaiTimeline)return;
+const bar=document.getElementById('rentangHalaman'),info=document.getElementById('rentangInfo');
+const DATA=JSON.parse(document.querySelector('[data-tl-data]').textContent||'[]');
+const KUNCI='inaai_admin_rentang';
+let rentang='30d',fUser='',fProyek='',cari='',fPrioritas='';
+try{const v=localStorage.getItem(KUNCI);if(v)rentang=v}catch(e){}
+
+bar.innerHTML=window.InaaiTimeline.daftarRentang.map(r=>'<button type="button" class="tl-f" data-range="'+r.key+'">'+r.label+'</button>').join('');
+function keTgl(v){const p=String(v||'').slice(0,10).split('-');return p.length<3?null:new Date(+p[0],+p[1]-1,+p[2])}
+function dalamRentang(m,sl){
+const j=window.InaaiTimeline.jendela(rentang),a=keTgl(m),b=keTgl(sl);
+if(!a||!b)return true;
+return new Date(b.getTime()+86400000)>j.mulai&&a<j.selesai;
+}
+
+/* ===== Kanban: dimuat bertahap 50 kartu per kolom =====
+   Saringan dikerjakan server supaya kartu yang belum termuat ikut tersaring,
+   dan tiap kolom berhenti memanggil API begitu datanya habis. */
+const URL_KANBAN=@json(route('admin.kanban'));
+const kolom=[...document.querySelectorAll('#kanbanDash .kcol')].map(function(el){
+return {el:el,status:el.dataset.status,
+body:el.querySelector('[data-kb-body]'),
+state:el.querySelector('[data-kb-state]'),
+hitung:el.querySelector('.kcol-c'),
+offset:0,total:0,habis:false,memuat:false};
+});
+
+function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+
+function paramKanban(k){
+const j=window.InaaiTimeline.jendela(rentang);
+const q=new URLSearchParams({status:k.status,offset:k.offset,dari:iso(j.mulai),sampai:iso(j.selesai)});
+if(cari)q.set('q',cari);
+if(fProyek)q.set('proyek',fProyek);
+if(fPrioritas)q.set('prioritas',fPrioritas);
+if(fUser)q.set('user',fUser);
+return q;
+}
+
+const IKON_KOSONG='<span class="kosong-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 12h6"/></svg></span>';
+
+function tulisState(k,mode){
+if(mode==='memuat'){k.state.className='kb-state load';k.state.innerHTML='<i class="kb-spin"></i>Memuat…'}
+else if(mode==='kosong'){k.state.className='kosong';k.state.innerHTML=IKON_KOSONG+'<span class="kosong-t">Kosong</span>'}
+else if(mode==='habis'){k.state.className='kb-state';k.state.textContent='Semua '+k.total+' tugas sudah ditampilkan.'}
+else if(mode==='galat'){k.state.className='kb-state';k.state.textContent='Gagal memuat. Gulir lagi untuk mencoba.'}
+else{k.state.className='kb-state';k.state.textContent=''}
+}
+
+function diDasar(el){return el.scrollTop+el.clientHeight>=el.scrollHeight-40}
+
+async function muat(k){
+if(k.habis||k.memuat)return;
+k.memuat=true;tulisState(k,'memuat');
+try{
+const r=await fetch(URL_KANBAN+'?'+paramKanban(k).toString(),{headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+if(!r.ok)throw new Error(r.status);
+const d=await r.json();
+k.state.insertAdjacentHTML('beforebegin',d.html);
+k.offset+=d.jumlah;
+k.total=d.total;
+k.hitung.textContent=d.total;
+// Balasan kosong dianggap habis supaya offset tidak jalan di tempat.
+k.habis=!!d.habis||!d.jumlah;
+tulisState(k,k.total===0?'kosong':(k.habis?'habis':''));
+}catch(e){
+tulisState(k,'galat');
+k.memuat=false;
+return;
+}
+k.memuat=false;
+// Masih menempel di dasar (kartu belum memenuhi kolom): lanjutkan memuat,
+// karena tidak akan ada event scroll baru yang memicunya.
+if(!k.habis&&diDasar(k.body))muat(k);
+}
+
+function muatUlangKanban(){
+kolom.forEach(function(k){
+k.body.querySelectorAll('.ktask').forEach(el=>el.remove());
+k.offset=0;k.total=0;k.habis=false;k.memuat=false;
+k.body.scrollTop=0;
+muat(k);
+});
+}
+
+kolom.forEach(function(k){
+k.body.addEventListener('scroll',function(){if(!k.habis&&!k.memuat&&diDasar(k.body))muat(k)});
+});
+
+/* Memindah kartu mengubah KPI, kedua overview, dan timeline sekaligus — bukan
+   kanbannya saja — jadi seluruh halaman dimuat ulang. */
+document.getElementById('kanbanDash').addEventListener('inaai:kanban-pindah',function(){
+setTimeout(()=>location.reload(),650);
+});
+
+const bSegarkan=document.getElementById('segarkanHalaman');
+if(bSegarkan)bSegarkan.addEventListener('click',function(){location.reload()});
+
+function terapkan(){
+bar.querySelectorAll('[data-range]').forEach(b=>b.classList.toggle('on',b.dataset.range===rentang));
+window.InaaiTimeline.rentang(rentang);
+window.InaaiTimeline.saring(t=>(!fUser||t.reviewer===fUser)&&(!fProyek||t.proyek===fProyek));
+
+muatUlangKanban();
+
+// Overview saling menyaring
+document.querySelectorAll('[data-ov-user]').forEach(el=>el.classList.toggle('on',el.dataset.ovUser===fUser));
+document.querySelectorAll('[data-ov-proyek]').forEach(el=>el.classList.toggle('on',el.dataset.ovProyek===fProyek));
+const proyekUser=new Set(DATA.filter(t=>!fUser||t.reviewer===fUser).map(t=>t.proyek));
+document.querySelectorAll('[data-ov-proyek]').forEach(function(el){
+el.style.display=(!fUser||proyekUser.has(el.dataset.ovProyek))?'':'none';
+});
+const userProyek=new Set(DATA.filter(t=>!fProyek||t.proyek===fProyek).map(t=>t.reviewer));
+document.querySelectorAll('[data-ov-user]').forEach(function(el){
+el.style.display=(!fProyek||userProyek.has(el.dataset.ovUser))?'':'none';
+});
+
+const dipakai=DATA.filter(t=>dalamRentang(t.mulai,t.selesai)&&(!fUser||t.reviewer===fUser)&&(!fProyek||t.proyek===fProyek));
+const label=[];
+if(fUser)label.push('kontributor '+fUser);
+if(fProyek)label.push('proyek '+fProyek);
+info.textContent=dipakai.length+' tugas pada rentang ini'+(label.length?' · disaring: '+label.join(' & '):'');
+}
+
+bar.addEventListener('click',function(e){
+const b=e.target.closest('[data-range]');
+if(!b)return;
+rentang=b.dataset.range;
+try{localStorage.setItem(KUNCI,rentang)}catch(err){}
+terapkan();
+});
+
+document.querySelectorAll('[data-ov-user]').forEach(function(el){
+function pilih(){fUser=fUser===el.dataset.ovUser?'':el.dataset.ovUser;terapkan()}
+el.addEventListener('click',pilih);
+el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pilih()}});
+});
+document.querySelectorAll('[data-ov-proyek]').forEach(function(el){
+function pilih(){
+fProyek=fProyek===el.dataset.ovProyek?'':el.dataset.ovProyek;
+// Select filter kanban dan overview menunjuk nilai yang sama.
+const sel=document.getElementById('kbProyek');
+if(sel){sel.value=[...sel.options].some(o=>o.value===fProyek)?fProyek:'';if(sel.inaaiSel&&sel.inaaiSel.segarkan)sel.inaaiSel.segarkan()}
+terapkan();
+}
+el.addEventListener('click',e=>{if(!e.target.closest('a'))pilih()});
+el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pilih()}});
+});
+
+const inCari=document.getElementById('kbCari');
+if(inCari)inCari.addEventListener('input',function(){cari=inCari.value.trim().toLowerCase();terapkan()});
+[['kbProyek',v=>fProyek=v],['kbPrioritas',v=>fPrioritas=v]].forEach(function([id,set]){
+const el=document.getElementById(id);
+if(el)el.addEventListener('change',function(){set(el.value);terapkan()});
+});
+const bReset=document.getElementById('kbReset');
+if(bReset)bReset.addEventListener('click',function(){
+cari='';fProyek='';fPrioritas='';fUser='';
+if(inCari)inCari.value='';
+['kbProyek','kbPrioritas'].forEach(function(id){
+const el=document.getElementById(id);
+if(el){el.value='';if(el.inaaiSel&&el.inaaiSel.segarkan)el.inaaiSel.segarkan()}
+});
+terapkan();
+});
+
+/* Kartu kanban dibuat setelah halaman jadi, jadi aksinya didelegasikan. */
+document.getElementById('kanbanDash').addEventListener('click',function(e){
+const lihat=e.target.closest('[data-lihat]');
+if(lihat)return window.InaaiDrawerTugas.buka(lihat.dataset.lihat);
+const ubah=e.target.closest('[data-ubah]');
+if(ubah)return window.InaaiFormTugas.ubah(ubah.dataset.ubah);
+const hapus=e.target.closest('[data-hapus]');
+if(hapus)return window.InaaiDrawerTugas.hapus(hapus.dataset.hapus,hapus.dataset.judul||'');
+});
+
+terapkan();
+})();
+</script>
+@endpush
 
 @push('style')
 <style>
 .dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
-.ov-row{display:grid;grid-template-columns:170px 1fr 92px;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line3)}
-.ov-row:last-child{border-bottom:none}
-.ov-nama{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;min-width:0}
-.ov-dot{width:9px;height:9px;border-radius:3px;flex:none}
-.ov-meta{font-size:11.5px;color:var(--muted2);text-align:right;white-space:nowrap}
-.legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted2);margin-bottom:10px;flex-wrap:wrap}
-.legend span{display:flex;align-items:center;gap:5px}
-.legend i{width:9px;height:9px;border-radius:3px;display:block}
-.kanban{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px}
-.kcol{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:120px}
-.kcol-h{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:9px}
-.kcol-c{background:#fff;border:1px solid var(--line2);border-radius:999px;padding:1px 8px;font-size:11px;color:var(--muted2)}
-.ktask{background:#fff;border:1px solid var(--line2);border-radius:10px;padding:9px 10px;margin-bottom:8px}
-.ktask-j{font-size:12.5px;font-weight:600;line-height:1.35}
-.ktask-m{display:flex;align-items:center;justify-content:space-between;margin-top:7px;gap:6px}
-.ktask-p{font-size:11px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gantt-scroll{overflow-x:auto}
-.gantt-head{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:11px;min-width:520px}
-.gantt-head div{font-size:11px;color:var(--muted2);font-weight:600;text-align:center}
-.gantt-row{display:grid;grid-template-columns:150px 1fr;gap:11px;align-items:center;margin-bottom:9px;min-width:520px}
-.gantt-nama{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gantt-track{position:relative;height:20px;background:var(--line3);border-radius:999px}
-.gantt-bar{position:absolute;top:0;height:20px;border-radius:999px;opacity:.32}
-.gantt-fill{position:absolute;top:0;height:20px;border-radius:999px}
-.gantt-pct{position:absolute;right:8px;top:0;height:20px;display:flex;align-items:center;font-size:10.5px;font-weight:700;color:var(--muted)}
-.akt{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line3)}
-.akt:last-child{border-bottom:none}
-.akt-t{font-size:12.5px;line-height:1.4}
-.akt-w{font-size:11px;color:var(--muted3);margin-top:2px}
-.risk{display:flex;align-items:center;gap:9px;background:#fde3e1;color:#b23c35;padding:10px 14px;border-radius:11px;font-size:12.5px;margin-bottom:14px}
-@media(max-width:1000px){.dash-grid{grid-template-columns:1fr}.kanban{grid-template-columns:repeat(2,1fr)}}
+
+@media(max-width:1000px){.dash-grid{grid-template-columns:1fr}}
 </style>
 @endpush
 
 @section('content')
-@if($berisiko->isNotEmpty())
-<div class="risk">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/></svg>
-<span><strong>{{ $berisiko->count() }} proyek berisiko:</strong> {{ $berisiko->implode(' dan ') }} mendekati deadline.</span>
-<a href="{{ route('admin.proyek.index') }}" class="btn btn-sm" style="margin-left:auto">Tinjau proyek</a>
+{{-- Filter rentang berlaku untuk seluruh data di halaman ini --}}
+<div class="page-bar">
+<span class="page-bar-l">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+Rentang
+</span>
+<div class="tl-filter" id="rentangHalaman" role="group" aria-label="Rentang tampilan halaman"></div>
+<span class="page-bar-l" id="rentangInfo" style="margin-left:auto;font-weight:500;color:var(--muted3)"></span>
 </div>
-@endif
 
 <div class="grid-kpi">
 @foreach($kpi as $k)
@@ -73,29 +236,31 @@ Assign Tugas
 <div class="dash-grid">
 <div class="card">
 <div class="card-head">
-<div class="card-title">Overview per Proyek</div>
-<div class="card-desc">100% = total tugas seluruh proyek. Pekat = selesai, terang = to do.</div>
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.6 3.9A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>Overview per Proyek</div>
+<div class="card-desc">Bar penuh = seluruh tugas proyek itu; tiap warna adalah porsi statusnya. Abu-abu berarti belum ada tugas.</div>
 </div>
 <div class="card-body">
 <div class="legend">
-<span><i style="background:#1f7a52"></i>Selesai</span>
-<span><i style="background:#f5a273"></i>Sedang Dikerjakan</span>
-<span><i style="background:#eef0f6"></i>To Do</span>
+@foreach(\App\Models\Task::daftarStatusSelesaiDulu() as $k => $lbl)
+<span><i style="background:{{ \App\Models\Task::titikStatus($k) }}"></i>{{ $lbl }}</span>
+@endforeach
 </div>
 @forelse($overviewProyek as $p)
-<a href="{{ route('admin.proyek.show', $p['id']) }}" class="ov-row">
+<div class="ov-row" data-ov-proyek="{{ $p['nama'] }}" role="button" tabindex="0" title="Saring berdasarkan {{ $p['nama'] }}">
 <div class="ov-nama">
 <i class="ov-dot" style="background:{{ $p['warna'] }}"></i>
 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $p['nama'] }}</span>
-@if($p['berisiko'])<span class="badge b-risk">Berisiko</span>@endif
 </div>
 <div class="stack">
-<i style="width:{{ $p['wDone'] }}%;background:#1f7a52"></i>
-<i style="width:{{ $p['wProgress'] }}%;background:#f5a273"></i>
-<i style="width:{{ $p['wTodo'] }}%;background:#eef0f6"></i>
+@foreach($p['segmen'] as $sg)
+@if($sg['w'] > 0)<i style="width:{{ $sg['w'] }}%;background:{{ $sg['warna'] }}" title="{{ $sg['label'] }}: {{ $sg['jumlah'] }}"></i>@endif
+@endforeach
 </div>
 <div class="ov-meta">{{ $p['tugas'] }} tugas · {{ $p['pct'] }}%</div>
+<a class="ico-btn xs" href="{{ route('admin.proyek.show', $p['id']) }}" title="Buka proyek" aria-label="Buka proyek {{ $p['nama'] }}">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
 </a>
+</div>
 @empty
 <div class="empty">Belum ada proyek.</div>
 @endforelse
@@ -104,25 +269,25 @@ Assign Tugas
 
 <div class="card">
 <div class="card-head">
-<div class="card-title">Overview per User</div>
-<div class="card-desc">100% = total tugas. {{ $overviewUser->count() }} kontributor dengan beban tertinggi.</div>
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>Overview per User</div>
+<div class="card-desc">Bar penuh = seluruh tugas kontributor itu. {{ $overviewUser->count() }} kontributor dengan beban tertinggi.</div>
 </div>
 <div class="card-body">
 <div class="legend">
-<span><i style="background:#1f7a52"></i>Selesai</span>
-<span><i style="background:#f5a273"></i>Sedang Dikerjakan</span>
-<span><i style="background:#eef0f6"></i>To Do</span>
+@foreach(\App\Models\Task::daftarStatusSelesaiDulu() as $k => $lbl)
+<span><i style="background:{{ \App\Models\Task::titikStatus($k) }}"></i>{{ $lbl }}</span>
+@endforeach
 </div>
 @forelse($overviewUser as $u)
-<div class="ov-row">
+<div class="ov-row" data-ov-user="{{ $u['nama'] }}" role="button" tabindex="0" title="Saring berdasarkan {{ $u['nama'] }}">
 <div class="ov-nama">
 <span class="avatar" style="width:24px;height:24px;font-size:10px">{{ $u['inisial'] }}</span>
 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $u['nama'] }}</span>
 </div>
 <div class="stack">
-<i style="width:{{ $u['wDone'] }}%;background:#1f7a52"></i>
-<i style="width:{{ $u['wProgress'] }}%;background:#f5a273"></i>
-<i style="width:{{ $u['wTodo'] }}%;background:#eef0f6"></i>
+@foreach($u['segmen'] as $sg)
+@if($sg['w'] > 0)<i style="width:{{ $sg['w'] }}%;background:{{ $sg['warna'] }}" title="{{ $sg['label'] }}: {{ $sg['jumlah'] }}"></i>@endif
+@endforeach
 </div>
 <div class="ov-meta">{{ $u['tugas'] }} tugas · {{ $u['pct'] }}%</div>
 </div>
@@ -135,87 +300,55 @@ Assign Tugas
 
 <div class="card" style="margin-top:14px">
 <div class="card-head">
-<div class="card-title">Kanban per Progress</div>
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="6" height="16" x="4" y="4" rx="1"/><rect width="6" height="10" x="14" y="4" rx="1"/></svg></span>Kanban per Progress</div>
 <div class="card-desc">Ringkasan tugas terbaru pada setiap status.</div>
 </div>
+<div class="dp-bar">
+<label class="dp-cari">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+<input type="search" id="kbCari" placeholder="Cari judul, proyek, atau pemilik…" aria-label="Cari tugas">
+</label>
+<div class="dp-sel"><select id="kbProyek" data-select data-placeholder="Semua proyek">
+<option value="">Semua proyek</option>
+@foreach($projects as $p)<option value="{{ $p->nama }}" data-color="{{ $p->warna }}">{{ $p->nama }}</option>@endforeach
+</select></div>
+<div class="dp-sel"><select id="kbPrioritas" data-select data-placeholder="Semua prioritas">
+<option value="">Semua prioritas</option>
+@foreach(\App\Models\Task::daftarPrioritas() as $pr => $warna)<option value="{{ $pr }}" data-color="{{ $warna }}">{{ $pr }}</option>@endforeach
+</select></div>
+<button type="button" class="btn btn-sm" id="kbReset">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+Reset
+</button>
+</div>
 <div class="card-body">
-<div class="kanban">
-@foreach($kanban as $col)
-<div class="kcol">
+<div class="kanban" id="kanbanDash" data-kanban data-kanban-url="/tasks/__ID__/status">
+@foreach(\App\Models\Task::daftarStatus() as $k => $lbl)
+<div class="kcol" data-status="{{ $k }}">
 <div class="kcol-h">
-<span>{{ $col['nama'] }}</span>
-<span class="kcol-c">{{ $col['count'] }}</span>
+<span class="kcol-n">
+<i class="kdot" style="background:{{ \App\Models\Task::titikStatus($k) }}"></i>
+{{ $lbl }}
+</span>
+<span class="kcol-c">0</span>
 </div>
-@forelse($col['items']->take(4) as $t)
-<div class="ktask">
-<div class="ktask-j">{{ $t->judul }}</div>
-<div class="ktask-m">
-<span class="ktask-p">{{ $t->project?->nama }}</span>
-<span class="avatar" style="width:22px;height:22px;font-size:9.5px">{{ $t->user?->inisial() }}</span>
+{{-- Isi kolom dimuat bertahap dari /admin/kanban, 50 kartu sekali jalan. --}}
+<div class="kcol-body" data-kb-body>
+<div class="kb-state" data-kb-state></div>
 </div>
-</div>
-@empty
-<div style="font-size:11.5px;color:var(--muted3);text-align:center;padding:14px 0">Tidak ada tugas</div>
-@endforelse
-@if($col['count'] > 4)
-<div style="font-size:11px;color:var(--muted2);text-align:center;padding-top:3px">+{{ $col['count'] - 4 }} lainnya</div>
-@endif
 </div>
 @endforeach
 </div>
 </div>
 </div>
 
-<div class="dash-grid">
-<div class="card" style="display:flex;flex-direction:column">
-<div class="card-head">
-<div class="card-title">Timeline Proyek</div>
+<div class="card" style="margin-top:14px" data-timeline data-tl-key="admin" data-tl-default="3m">
+<div class="card-head tl-head">
+<div class="card-title"><span class="ct-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></span>Timeline Proyek</div>
+<div class="card-desc">Rentangnya mengikuti filter di awal halaman.</div>
 </div>
-<div class="card-body" style="flex:1">
-<div class="gantt-scroll">
-<div class="gantt-head">
-@foreach($bulan as $b)
-<div>{{ $b->translatedFormat('M') }}</div>
-@endforeach
+<div class="card-body" style="flex:1"><div data-tl-body></div></div>
+<div class="card-foot" data-tl-note></div>
+<script type="application/json" data-tl-data>@json($timeline, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE)</script>
 </div>
-@forelse($gantt as $g)
-<div class="gantt-row">
-<div class="gantt-nama">{{ $g['nama'] }}</div>
-<div class="gantt-track">
-<div class="gantt-bar" style="left:{{ $g['pos']['left'] }}%;width:{{ $g['pos']['width'] }}%;background:{{ $g['warna'] }}"></div>
-<div class="gantt-fill" style="left:{{ $g['pos']['left'] }}%;width:{{ $g['pos']['width'] * $g['pct'] / 100 }}%;background:{{ $g['warna'] }}"></div>
-<div class="gantt-pct">{{ $g['pct'] }}%</div>
-</div>
-</div>
-@empty
-<div class="empty">Belum ada proyek berjadwal.</div>
-@endforelse
-</div>
-</div>
-<div class="card-foot">Satu warna per proyek — bar pekat = progres, bar terang = rencana.</div>
-</div>
-
-<div class="card" style="display:flex;flex-direction:column">
-<div class="card-head">
-<div class="card-title">Aktivitas Terbaru</div>
-</div>
-<div class="card-body" style="flex:1">
-@forelse($aktivitas as $a)
-<div class="akt">
-<span class="avatar">{{ $a['inisial'] }}</span>
-<div style="min-width:0">
-<div class="akt-t"><strong>{{ $a['siapa'] }}</strong> — {{ $a['apa'] }}</div>
-<div class="akt-w">{{ $a['waktu'] }}</div>
-</div>
-</div>
-@empty
-<div class="empty">Belum ada aktivitas.</div>
-@endforelse
-</div>
-<div class="card-foot">Menampilkan {{ $aktivitas->count() }} pembaruan tugas terakhir.</div>
-</div>
-</div>
-
-@php($semuaUser = \App\Models\User::where('is_active', true)->orderBy('name')->get())
-@include('partials.modal-assign')
 @endsection

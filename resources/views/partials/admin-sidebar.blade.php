@@ -1,10 +1,13 @@
 @php($u = auth()->user())
 <aside class="sidebar" id="sidebar">
 <div class="sb-head">
-<div class="sb-logo img"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></div>
-<div class="sb-title">INAai Project</div>
+<div class="sb-logo img"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></div>
+<div class="sb-title">INaAI Project</div>
 <button class="sb-toggle" id="sbToggle" type="button" title="Ciutkan sidebar" aria-label="Ciutkan sidebar">
-<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+{{-- lucide panel-left-close: tampil saat sidebar terbuka --}}
+<svg class="ico-close" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>
+{{-- lucide panel-left-open: tampil saat sidebar diciutkan --}}
+<svg class="ico-open" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
 </button>
 </div>
 
@@ -38,21 +41,16 @@
 <span class="nav-label">Percakapan</span>
 </a>
 
-<a href="{{ route('admin.chat.histories') }}" class="nav-item {{ request()->routeIs('admin.chat.histories') ? 'active' : '' }}" title="Riwayat Chat">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/></svg>
-<span class="nav-label">Riwayat Chat</span>
-</a>
-
 <div class="sb-foot">
 <div class="uf-menu" id="ufMenu">
 <div class="uf-head">
 <div class="n">{{ $u->name }}</div>
 <div class="e">{{ $u->email }}</div>
 </div>
-<a href="{{ route('admin.users') }}" class="mi">
+<button type="button" class="mi" id="ufProfil">
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 Lihat Profil
-</a>
+</button>
 <form method="POST" action="{{ route('logout') }}">@csrf
 <button type="submit" class="mi danger">
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
@@ -61,7 +59,7 @@ Keluar
 </form>
 </div>
 <button class="uf" id="ufBtn" type="button">
-<div class="uf-av">{{ $u->inisial() }}</div>
+<div class="uf-av" id="ufAv">@if($u->fotoUrl())<img src="{{ $u->fotoUrl() }}" alt="{{ $u->name }}">@else{{ $u->inisial() }}@endif</div>
 <div class="uf-meta">
 <div class="uf-nama">{{ $u->name }}</div>
 <div class="uf-sub">{{ $u->role?->display_name ?? 'Admin' }}</div>
@@ -70,16 +68,22 @@ Keluar
 </button>
 </div>
 </aside>
+@include('partials.profil-modal')
 <script>
 (function(){
 const sb=document.getElementById('sidebar'),tg=document.getElementById('sbToggle');
 const KEY='inaai_sb_collapsed';
+function labelToggle(){tg.title=sb.classList.contains('collapsed')?'Lebarkan sidebar':'Ciutkan sidebar';tg.setAttribute('aria-label',tg.title)}
 if(localStorage.getItem(KEY)==='1')sb.classList.add('collapsed');
+labelToggle();
 tg.addEventListener('click',function(){
 sb.classList.toggle('collapsed');
 localStorage.setItem(KEY,sb.classList.contains('collapsed')?'1':'0');
-tg.title=sb.classList.contains('collapsed')?'Lebarkan sidebar':'Ciutkan sidebar';
+labelToggle();
 });
+const bProfil=document.getElementById('ufProfil');
+if(bProfil)bProfil.addEventListener('click',function(){document.getElementById('ufMenu').classList.remove('open');window.InaaiProfil&&window.InaaiProfil.buka()});
+
 const ub=document.getElementById('ufBtn'),um=document.getElementById('ufMenu');
 ub.addEventListener('click',function(e){e.stopPropagation();um.classList.toggle('open')});
 document.addEventListener('click',function(){um.classList.remove('open')});

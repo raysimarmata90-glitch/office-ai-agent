@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskEvidence;
 use App\Models\User;
 use App\Services\TaskMetrics;
+use App\Support\BatasUnggah;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -27,6 +29,7 @@ class ProjectAdminController extends Controller
                 'selesai' => $r['done'],
                 'pct' => $r['pct'],
                 'kontributor' => $p->tasks->pluck('user_id')->unique()->count(),
+                'segmen' => TaskMetrics::segmen($p->tasks),
                 'dibuat' => $p->created_at,
                 'periode' => $p->mulai && $p->selesai
                     ? $p->mulai->format('d/m/y') . ' – ' . $p->selesai->format('d/m/y')
@@ -54,7 +57,10 @@ class ProjectAdminController extends Controller
             ];
         })->sortByDesc('total')->values();
 
-        return view('admin.proyek-detail', compact('project', 'ringkas', 'kanban', 'kontributor'));
+        $projects = Project::orderBy('nama')->get();
+        $semuaUser = User::where('is_active', true)->orderBy('name')->get();
+
+        return view('admin.proyek-detail', compact('project', 'ringkas', 'kanban', 'kontributor', 'projects', 'semuaUser'));
     }
 
     public function store(Request $request)
@@ -68,8 +74,6 @@ class ProjectAdminController extends Controller
         ]);
 
         $validated['created_by'] = $request->user()->id;
-        $validated['warna'] = $validated['warna'] ?? '#f55d14';
-
         $project = Project::create($validated);
 
         return back()->with('success', 'Proyek "' . $project->nama . '" berhasil dibuat.');
@@ -88,17 +92,31 @@ class ProjectAdminController extends Controller
             'mulai' => ['required', 'date'],
             'selesai' => ['required', 'date', 'after_or_equal:mulai'],
             'deskripsi' => ['nullable', 'string'],
+            'evidence.*' => [
+                'nullable',
+                'file',
+                'max:' . BatasUnggah::maksKb(),
+                'extensions:' . implode(',', BatasUnggah::EKSTENSI),
+            ],
+        ], [
+            'evidence.*.uploaded' => 'File evidence gagal diunggah. Ukuran maksimal ' . BatasUnggah::maksMb() . ' MB per file.',
+            'evidence.*.max' => 'Ukuran file evidence maksimal ' . BatasUnggah::maksMb() . ' MB per file.',
+            'evidence.*.extensions' => 'Format evidence harus salah satu dari: ' . implode(', ', BatasUnggah::EKSTENSI) . '.',
+            'selesai.after_or_equal' => 'Waktu selesai tidak boleh lebih awal dari waktu mulai.',
         ]);
 
         if (empty($validated['project_id']) && empty($validated['project_baru'])) {
-            return back()
-                ->withInput()
-                ->withErrors(['project_id' => 'Pilih proyek yang tersedia atau isi nama proyek baru.']);
+            $pesan = 'Pilih proyek yang tersedia atau isi nama proyek baru.';
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $pesan, 'errors' => ['project_id' => [$pesan]]], 422);
+            }
+
+            return back()->withInput()->withErrors(['project_id' => $pesan]);
         }
 
         $projectId = $validated['project_id'] ?? Project::create([
             'nama' => $validated['project_baru'],
-            'warna' => '#f55d14',
             'mulai' => $validated['mulai'],
             'selesai' => $validated['selesai'],
             'created_by' => $request->user()->id,
@@ -117,8 +135,16 @@ class ProjectAdminController extends Controller
             'selesai' => $validated['selesai'],
         ]);
 
-        $pegawai = User::find($validated['user_id']);
+        TaskEvidence::simpanBerkas($task, $request->file('evidence', []), $request->user()->id);
 
-        return back()->with('success', 'Tugas "' . $task->judul . '" berhasil di-assign ke ' . $pegawai->name . '.');
+        $pegawai = User::find($validated['user_id']);
+        $pesan = 'Tugas "' . $task->judul . '" berhasil di-assign ke ' . $pegawai->name . '.';
+
+        // Form modal mengirim lewat fetch supaya halamannya tidak berpindah.
+        if ($request->expectsJson()) {
+            return response()->json(['success' => true, 'pesan' => $pesan, 'id' => $task->id]);
+        }
+
+        return back()->with('success', $pesan);
     }
 }

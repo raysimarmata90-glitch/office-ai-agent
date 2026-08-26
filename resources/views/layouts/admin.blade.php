@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>@yield('title', 'Dashboard') · INAai Project</title>
+<title>@yield('title', 'Dashboard') · INaAI Project</title>
 @include('partials.favicon')
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,34 +24,28 @@
 @yield('topbar-actions')
 </div>
 <div class="content">
-@if(session('success'))
-<div class="alert alert-ok">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-{{ session('success') }}
-</div>
-@endif
-@if(session('error'))
-<div class="alert alert-err">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>
-{{ session('error') }}
-</div>
-@endif
-@if($errors->any())
-<div class="alert alert-err">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-{{ $errors->first() }}
-</div>
-@endif
+{{-- Flash dari server dilempar ke komponen toast global --}}
+@if(session('success'))<div data-toast data-jenis="sukses" data-teks="{{ session('success') }}"></div>@endif
+@if(session('info'))<div data-toast data-jenis="info" data-teks="{{ session('info') }}"></div>@endif
+@if(session('warning'))<div data-toast data-jenis="peringatan" data-teks="{{ session('warning') }}"></div>@endif
+@if(session('error'))<div data-toast data-jenis="galat" data-teks="{{ session('error') }}"></div>@endif
+@if($errors->any())<div data-toast data-jenis="galat" data-teks="{{ $errors->all() ? implode(' ', $errors->all()) : '' }}"></div>@endif
+<div class="content-admin">
 @yield('content')
 </div>
 </div>
 </div>
+</div>
 @include('partials.dialog')
+<script src="{{ asset('js/inaai-toast.js') }}"></script>
 <script src="{{ asset('js/inaai-dialog.js') }}"></script>
 <script src="{{ asset('js/inaai-table.js') }}"></script>
 <script src="{{ asset('js/inaai-select.js') }}"></script>
 <script src="{{ asset('js/inaai-upload.js') }}"></script>
+<script src="{{ asset('js/inaai-datetime.js') }}"></script>
 <script src="{{ asset('js/inaai-timeline.js') }}"></script>
+<script src="{{ asset('js/inaai-kanban.js') }}"></script>
+<script src="{{ asset('js/inaai-profil.js') }}"></script>
 @stack('script')
 </body>
 </html>

@@ -45,14 +45,16 @@ class ProjectTaskSeeder extends Seeder
 
         $admin = User::whereHas('role', fn ($q) => $q->where('name', 'admin'))->first();
 
-        // progres: [nama, warna, total tugas, persen selesai, berisiko]
+        // progres: [nama, total tugas, persen selesai, berisiko]
+        // Warna tidak diisi di sini — model Project yang membagikannya dari palet
+        // supaya tiap proyek pasti berbeda.
         $blueprint = [
-            ['Migrasi ERP', '#f55d14', 12, 100, false],
-            ['Aplikasi Mobile v2', '#2c5cc5', 10, 90, true],
-            ['Integrasi Pembayaran', '#1f7a52', 10, 80, true],
-            ['Portal Karyawan', '#a05a1c', 8, 50, false],
-            ['Data Warehouse', '#b23c35', 9, 33, false],
-            ['Website Korporat', '#6b46c1', 6, 17, false],
+            ['Migrasi ERP', 12, 100, false],
+            ['Aplikasi Mobile v2', 10, 90, true],
+            ['Integrasi Pembayaran', 10, 80, true],
+            ['Portal Karyawan', 8, 50, false],
+            ['Data Warehouse', 9, 33, false],
+            ['Website Korporat', 6, 17, false],
         ];
 
         $judulPool = [
@@ -65,10 +67,9 @@ class ProjectTaskSeeder extends Seeder
         $prioritas = ['Tinggi', 'Sedang', 'Rendah'];
         $mulaiProyek = now()->startOfMonth()->subMonths(1);
 
-        foreach ($blueprint as $i => [$nama, $warna, $total, $persen, $berisiko]) {
+        foreach ($blueprint as $i => [$nama, $total, $persen, $berisiko]) {
             $project = Project::create([
                 'nama' => $nama,
-                'warna' => $warna,
                 'deskripsi' => 'Inisiatif ' . $nama . ' untuk mendukung target operasional perusahaan.',
                 'berisiko' => $berisiko,
                 'mulai' => (clone $mulaiProyek)->addWeeks($i * 2),
@@ -96,6 +97,9 @@ class ProjectTaskSeeder extends Seeder
                 $pemilik = $users[($i * 3 + $idx) % $users->count()];
                 $reviewer = $users[($i * 3 + $idx + 4) % $users->count()];
                 $mulai = (clone $project->mulai)->addDays($idx * 4);
+                // Tanggal dibuat selalu di masa lalu: tugas yang jadwalnya masih
+                // ke depan tetap tercatat dibuat sebelum hari ini.
+                $dibuat = min((clone $mulai)->subDays(2), now()->subHours($i * 24 + $idx + 1));
 
                 Task::create([
                     'judul' => $judulPool[$idx % count($judulPool)] . ' — ' . $nama,
@@ -109,8 +113,8 @@ class ProjectTaskSeeder extends Seeder
                     'mulai' => $mulai,
                     'selesai' => (clone $mulai)->addDays(7 + ($idx % 3) * 5),
                     'selesai_pada' => $status === Task::STATUS_DONE ? (clone $mulai)->addDays(6) : null,
-                    'created_at' => (clone $mulai)->subDays(2),
-                    'updated_at' => (clone $mulai)->addDays(1),
+                    'created_at' => $dibuat,
+                    'updated_at' => (clone $dibuat)->addHours(6),
                 ]);
             }
         }

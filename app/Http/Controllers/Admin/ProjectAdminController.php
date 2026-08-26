@@ -24,7 +24,6 @@ class ProjectAdminController extends Controller
                 'id' => $p->id,
                 'nama' => $p->nama,
                 'warna' => $p->warna,
-                'berisiko' => $p->berisiko,
                 'tugas' => $r['total'],
                 'selesai' => $r['done'],
                 'pct' => $r['pct'],

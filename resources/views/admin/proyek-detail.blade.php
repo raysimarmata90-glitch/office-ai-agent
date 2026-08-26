@@ -43,9 +43,6 @@ Kembali
 </div>
 <div class="info-row"><span class="info-k">Nama Proyek</span><strong>{{ $project->nama }}</strong></div>
 <div class="info-row"><span class="info-k">Periode</span><span>{{ $project->mulai?->format('d/m/y') ?? '–' }} – {{ $project->selesai?->format('d/m/y') ?? '–' }}</span></div>
-<div class="info-row"><span class="info-k">Status</span>
-<span>@if($project->berisiko)<span class="badge b-risk">Berisiko</span>@else<span class="badge b-done">Sehat</span>@endif</span>
-</div>
 <div class="info-row"><span class="info-k">Kontributor</span><span>{{ $kontributor->count() }} orang</span></div>
 <div class="info-row"><span class="info-k">Dibuat</span><span>{{ $project->created_at?->format('d/m/y, H:i') }}</span></div>
 @if($project->deskripsi)

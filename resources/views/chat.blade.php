@@ -1,688 +1,530 @@
-@extends('layouts.app')
-
-@section('title', 'Chat - ' . $conversation->department->name)
-@section('page-title', 'Chat')
-
-@section('content')
-    <style>
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.5;
-            }
-        }
-
-        .animate-fade-in-up {
-            animation: fadeInUp 0.3s ease-out;
-        }
-
-        .animate-pulse-slow {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-
-        #quick-options button {
-            animation: fadeInUp 0.3s ease-out;
-            animation-fill-mode: both;
-        }
-
-        #quick-options button:nth-child(1) {
-            animation-delay: 0.05s;
-        }
-
-        #quick-options button:nth-child(2) {
-            animation-delay: 0.1s;
-        }
-
-        #quick-options button:nth-child(3) {
-            animation-delay: 0.15s;
-        }
-
-        #quick-options button:nth-child(4) {
-            animation-delay: 0.2s;
-        }
-
-        #quick-options button:nth-child(5) {
-            animation-delay: 0.25s;
-        }
-
-        #quick-options button:nth-child(6) {
-            animation-delay: 0.3s;
-        }
-
-        .message-bubble {
-            animation: fadeInUp 0.4s ease-out;
-        }
-    </style>
-
-    <div class="h-screen flex flex-col bg-gradient-to-b from-gray-50 to-white">
-        <!-- Messages Container -->
-        <div id="messages-container" class="flex-1 overflow-y-auto px-6 py-8 pb-24">
-            <div class="max-w-4xl mx-auto space-y-4 mt-12">
-                @foreach ($conversation->messages as $message)
-                    <div class="message-bubble flex {{ $message->isFromUser() ? 'justify-end' : 'justify-start' }}">
-                        @php
-                            $hasOptionsInMessage =
-                                !$message->isFromUser() &&
-                                isset($message->metadata['has_options']) &&
-                                $message->metadata['has_options'];
-                        @endphp
-                        <div
-                            class="{{ $message->isFromUser() ? 'max-w-md' : ($hasOptionsInMessage ? 'max-w-xl w-full' : 'max-w-xl') }}">
-                            <div
-                                class="bg-{{ $message->isFromUser() ? 'indigo-600' : 'white' }} text-{{ $message->isFromUser() ? 'white' : 'gray-900' }} rounded-lg px-4 py-3 shadow {{ !$hasOptionsInMessage ? 'inline-block' : '' }}">
-                                <p class="text-sm whitespace-pre-wrap">{{ $message->content }}</p>
-                                <p class="text-xs mt-1 {{ $message->isFromUser() ? 'text-indigo-200' : 'text-gray-400' }}">
-                                    {{ $message->created_at->format('H:i') }}
-                                </p>
-                            </div>
-
-                            @if (
-                                !$message->isFromUser() &&
-                                    isset($message->metadata['has_options']) &&
-                                    $message->metadata['has_options'] &&
-                                    !empty($message->metadata['options']))
-                                <!-- Options attached to AI message -->
-                                <div class="mt-3 space-y-2">
-                                    @php
-                                        $displayOptions = collect($message->metadata['options'])
-                                            ->reject(
-                                                fn($option) => strcasecmp(trim((string) $option), 'something else') ===
-                                                    0,
-                                            )
-                                            ->values();
-                                    @endphp
-                                    @foreach ($displayOptions as $index => $option)
-                                        <button type="button"
-                                            class="message-option w-full group flex items-start gap-3 rounded-lg border-2 border-gray-200 bg-white px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                            data-value="{{ $option }}" onclick="selectOption(this)">
-                                            <span
-                                                class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-sm font-medium group-hover:bg-indigo-100 group-hover:text-indigo-700">
-                                                {{ $index + 1 }}
-                                            </span>
-                                            <span class="flex-1 text-sm text-gray-800 group-hover:text-indigo-700 pt-0.5">
-                                                {{ $option }}
-                                            </span>
-                                            <svg class="flex-shrink-0 w-5 h-5 text-gray-400 opacity-0 group-hover:opacity-100 group-hover:text-indigo-600 transition-opacity"
-                                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M9 5l7 7-7 7"></path>
-                                            </svg>
-                                        </button>
-                                    @endforeach
-
-                                    @if (in_array(
-                                            $message->metadata['question_type'] ?? null,
-                                            ['objective', 'expectation', 'current_task', 'task_detail', 'task_challenge', 'task_approach'],
-                                            true))
-                                        <!-- Something else option with inline input -->
-                                        <div class="message-option-other-wrapper">
-                                            <!-- Button state -->
-                                            <button type="button"
-                                                class="message-option-other w-full group flex items-center gap-3 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                onclick="activateInlineInput(this)">
-                                                <svg class="flex-shrink-0 w-5 h-5 text-gray-400 group-hover:text-indigo-600"
-                                                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
-                                                    </path>
-                                                </svg>
-                                                <span class="flex-1 text-sm text-gray-600 group-hover:text-indigo-700">
-                                                    Something else
-                                                </span>
-                                            </button>
-
-                                            <!-- Input state (hidden initially) -->
-                                            <div class="inline-input-form hidden">
-                                                <form class="flex items-center gap-2"
-                                                    onsubmit="submitInlineInput(event, this)">
-                                                    <div class="flex-1 relative">
-                                                        <input type="text"
-                                                            class="inline-input w-full px-4 py-3 pr-12 border-2 border-indigo-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 placeholder-gray-400"
-                                                            placeholder="Type your answer..." required>
-                                                        <button type="submit"
-                                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-indigo-600 hover:text-indigo-700 focus:outline-none">
-                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
-                                                                viewBox="0 0 24 24">
-                                                                <path stroke-linecap="round" stroke-linejoin="round"
-                                                                    stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                                                            </svg>
-                                                        </button>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    @endif
-                                </div>
-                            @elseif(!$message->isFromUser() && $loop->last && $conversation->isActive())
-                                <!-- Fallback: Generate options for last message if no options exist -->
-                                <div class="mt-3 space-y-2" id="fallback-options-{{ $message->id }}">
-                                    <script>
-                                        // Generate options on client side for existing messages
-                                        document.addEventListener('DOMContentLoaded', function() {
-                                                    const messageContent = @json($message->content);
-                                                    const fallbackContainer = document.getElementById('fallback-options-{{ $message->id }}');
-
-                                                    // Simple rule-based options for first question
-                                                    if (messageContent.toLowerCase().includes('proyek') &&
-                                                        messageContent.toLowerCase().includes('hari ini')) {
-                                                        const options = ['Proyek Baru', 'Lanjut Proyek Sebelumnya'];
-
-                                                        let html = '';
-                                                        options.forEach((option, index) => {
-                                                                html += `
-                                                        <button type="button"
-                                                            class="message-option w-full group flex items-start gap-3 rounded-lg border-2 border-gray-200 bg-white px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                            data-value="${option}"
-                                                            onclick="selectOption(this)">
-                                                            <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-sm font-medium group-hover:bg-indigo-100 group-hover:text-indigo-700">
-                                                                    <button type="submit"
-                                                                        class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-indigo-600 hover:text-indigo-700 focus:outline-none">
-                                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                                                                        </svg>
-                                                                    </button>
-                                                                </div>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                `;
-
-                                                                fallbackContainer.innerHTML = html;
-                                                            }
-                                                        });
-                                    </script>
-                                </div>
-                            @endif
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-
-        <!-- Message Input -->
-        @if ($conversation->isActive())
-            <div class="px-6 py-6 pb-8 border-t border-gray-200 bg-white" id="input-area">
-                <div class="max-w-4xl mx-auto">
-                    @php
-                        $lastAiMessage = $conversation->messages()->where('sender_type', 'ai')->latest()->first();
-                        $hasOptions =
-                            $lastAiMessage &&
-                            isset($lastAiMessage->metadata['has_options']) &&
-                            $lastAiMessage->metadata['has_options'];
-                    @endphp
-
-                    <form id="message-form" class="flex items-center gap-3 {{ $hasOptions ? 'hidden' : '' }}">
-                        @csrf
-                        <div class="flex-1 relative">
-                            <input type="text" id="message-input" placeholder="Type your answer..."
-                                class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 placeholder-gray-400">
-                            <button type="submit" id="send-button"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-indigo-600 hover:text-indigo-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    </form>
-                    <div id="chat-validation-error" class="hidden mt-2 text-sm text-red-600" role="alert"></div>
-                </div>
-            </div>
-        @else
-            <div class="px-6 py-6 pb-8">
-                <div class="max-w-4xl mx-auto text-center text-yellow-800 bg-yellow-50 rounded-lg py-4">
-                    <i class="fas fa-info-circle mr-2"></i>
-                    Percakapan ini sudah selesai.
-                </div>
-            </div>
-        @endif
-    </div>
-
-    @push('scripts')
-        <script>
-            const conversationId = {{ $conversation->id }};
-            const messagesContainer = document.getElementById('messages-container');
-            const messageForm = document.getElementById('message-form');
-            const messageInput = document.getElementById('message-input');
-            const sendButton = document.getElementById('send-button');
-
-            // Scroll to bottom on load
-            scrollToBottom();
-
-            function scrollToBottom() {
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }
-
-            function escapeHtml(value) {
-                return value.replace(/[&<>'"]/g, character => ({
-                    '&': '&amp;',
-                    '<': '&lt;',
-                    '>': '&gt;',
-                    "'": '&#039;',
-                    '"': '&quot;'
-                } [character]));
-            }
-
-            function isLikelyMeaningfulAnswer(value) {
-                const normalized = value.trim();
-                const letters = (normalized.match(/[A-Za-zÀ-ÿ]/g) || []).join('');
-                const alphanumeric = normalized.replace(/[^A-Za-zÀ-ÿ0-9]/g, '');
-
-                if (alphanumeric.length < 2 || letters.length < 2) return false;
-                if (/(.)\1{2,}/i.test(normalized)) return false;
-                if (/(qwerty|asdf|zxcv|qaz|wsx|edc)/i.test(normalized)) return false;
-
-                if (letters.length >= 6) {
-                    const uniqueLetters = new Set(letters.toLowerCase()).size;
-                    const vowelCount = (letters.match(/[aeiou]/gi) || []).length;
-                    if (uniqueLetters / letters.length < 0.35 || vowelCount / letters.length < 0.2) {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-
-            function conversationIsActive() {
-                return {{ $conversation->isActive() ? 'true' : 'false' }};
-            }
-
-            function showValidationError(message, input = null) {
-                const inlineForm = input ? input.closest('.inline-input-form') : null;
-                const errorElement = inlineForm ?
-                    inlineForm.querySelector('.inline-validation-error') :
-                    document.getElementById('chat-validation-error');
-
-                if (!errorElement) return;
-
-                errorElement.textContent = message;
-                errorElement.classList.remove('hidden');
-                if (input) input.setAttribute('aria-invalid', 'true');
-            }
-
-            function clearValidationError(input = null) {
-                const inlineForm = input ? input.closest('.inline-input-form') : null;
-                const errorElement = inlineForm ?
-                    inlineForm.querySelector('.inline-validation-error') :
-                    document.getElementById('chat-validation-error');
-
-                if (!errorElement) return;
-
-                errorElement.textContent = '';
-                errorElement.classList.add('hidden');
-                if (input) input.removeAttribute('aria-invalid');
-            }
-
-            function selectOption(button) {
-                if (!conversationIsActive()) return;
-
-                const value = button.getAttribute('data-value');
-
-                // Disable all option buttons in this message
-                const messageDiv = button.closest('.message-bubble');
-                const allOptions = messageDiv.querySelectorAll('.message-option, .message-option-other');
-                allOptions.forEach(opt => {
-                    opt.disabled = true;
-                    opt.classList.add('opacity-50', 'cursor-not-allowed');
-                });
-
-                submitMessage(value);
-            }
-
-            function showCustomInput() {
-                if (!conversationIsActive()) return;
-
-                // Show input form
-                const messageForm = document.getElementById('message-form');
-                messageForm.classList.remove('hidden');
-
-                messageInput.focus();
-                scrollToBottom();
-            }
-
-            function addMessage(content, isUser, hasOptions = false, options = [], questionType = null) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message-bubble flex ${isUser ? 'justify-end' : 'justify-start'}`;
-
-                const now = new Date();
-                const time = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-
-                let optionsHtml = '';
-                if (!isUser && hasOptions && options.length > 0) {
-                    optionsHtml = '<div class="mt-3 space-y-2">';
-
-                    options.filter(option => option.trim().toLowerCase() !== 'something else').forEach((option, index) => {
-                        optionsHtml += `
-                            <button type="button"
-                                class="message-option w-full group flex items-start gap-3 rounded-lg border-2 border-gray-200 bg-white px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                data-value="${escapeHtml(option)}"
-                                onclick="selectOption(this)"
-                                style="animation: fadeInUp 0.3s ease-out ${(index * 0.05)}s both">
-                                <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-sm font-medium group-hover:bg-indigo-100 group-hover:text-indigo-700">
-                                    ${index + 1}
-                                </span>
-                                <span class="flex-1 text-sm text-gray-800 group-hover:text-indigo-700 pt-0.5">
-                                    ${escapeHtml(option)}
-                                </span>
-                                <svg class="flex-shrink-0 w-5 h-5 text-gray-400 opacity-0 group-hover:opacity-100 group-hover:text-indigo-600 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                                </svg>
-                            </button>
-                        `;
-                    });
-
-                    // Only add "Something else" for specific question types
-                    const allowedTypes = ['objective', 'expectation', 'current_task', 'task_detail', 'task_challenge',
-                        'task_approach'
-                    ];
-                    const hasCustomOption = options.some(option => option.trim().toLowerCase() === 'something else');
-                    if ((questionType && allowedTypes.includes(questionType)) || hasCustomOption) {
-                        optionsHtml += `
-                        <div class="message-option-other-wrapper">
-                            <!-- Button state -->
-                            <button type="button"
-                                class="message-option-other w-full group flex items-center gap-3 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                onclick="activateInlineInput(this)"
-                                style="animation: fadeInUp 0.3s ease-out ${(options.length * 0.05)}s both">
-                                <svg class="flex-shrink-0 w-5 h-5 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
-                                </svg>
-                                <span class="flex-1 text-sm text-gray-600 group-hover:text-indigo-700">
-                                    Something else
-                                </span>
-                            </button>
-
-                            <!-- Input state (hidden initially) -->
-                            <div class="inline-input-form hidden">
-                                <div class="inline-validation-error hidden mb-2 text-sm text-red-600" role="alert"></div>
-                                <form class="flex items-center gap-2" onsubmit="submitInlineInput(event, this)">
-                                    <div class="flex-1 relative">
-                                        <input type="text"
-                                            class="inline-input w-full px-4 py-3 pr-12 border-2 border-indigo-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 placeholder-gray-400"
-                                            placeholder="Type your answer..."
-                                            required>
-                                        <button type="submit"
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-indigo-600 hover:text-indigo-700 focus:outline-none">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                        `;
-                    }
-
-                    optionsHtml += '</div>';
-                }
-
-                messageDiv.innerHTML = `
-                    <div class="${isUser ? 'max-w-md' : (hasOptions ? 'max-w-xl w-full' : 'max-w-xl')}">
-                        <div class="bg-${isUser ? 'indigo-600' : 'white'} text-${isUser ? 'white' : 'gray-900'} rounded-lg px-4 py-3 shadow-sm ${(!isUser && !hasOptions) || isUser ? 'inline-block' : ''}">
-                            <p class="text-sm whitespace-pre-wrap">${escapeHtml(content)}</p>
-                            <p class="text-xs mt-1 ${isUser ? 'text-indigo-200' : 'text-gray-400'}">
-                                ${time}
-                            </p>
-                        </div>
-                        ${optionsHtml}
-                    </div>
-                `;
-
-                messagesContainer.querySelector('.space-y-4').appendChild(messageDiv);
-                scrollToBottom();
-
-                // Update input field visibility dynamically
-                updateInputVisibility(hasOptions);
-            }
-
-            function updateInputVisibility(hasOptions) {
-                const messageForm = document.getElementById('message-form');
-                const messageInput = document.getElementById('message-input');
-
-                if (!messageForm) return;
-
-                if (hasOptions) {
-                    // Hide input if AI has options
-                    messageForm.classList.add('hidden');
-                } else {
-                    // Show input if AI expects text input
-                    messageForm.classList.remove('hidden');
-                    if (messageInput) {
-                        messageInput.focus();
-                    }
-                }
-            }
-
-            function activateInlineInput(button) {
-                if (!conversationIsActive()) return;
-
-                const wrapper = button.closest('.message-option-other-wrapper');
-                const buttonState = wrapper.querySelector('.message-option-other');
-                const inputForm = wrapper.querySelector('.inline-input-form');
-                const input = inputForm.querySelector('.inline-input');
-
-                // Hide button, show input
-                buttonState.classList.add('hidden');
-                inputForm.classList.remove('hidden');
-
-                // Focus input
-                input.focus();
-
-                // Scroll to bottom
-                scrollToBottom();
-            }
-
-            function submitInlineInput(event, form) {
-                event.preventDefault();
-                if (!conversationIsActive()) return;
-
-                const input = form.querySelector('.inline-input');
-                const value = input.value.trim();
-
-                clearValidationError(input);
-                if (!value) {
-                    showValidationError('Jawaban wajib diisi.', input);
-                    input.focus();
-                    return;
-                }
-                if (!isLikelyMeaningfulAnswer(value)) {
-                    showValidationError('Jawaban belum cukup jelas. Silakan masukkan jawaban yang relevan.', input);
-                    input.focus();
-                    return;
-                }
-
-                // Disable the form
-                input.disabled = true;
-                const submitBtn = form.querySelector('button[type="submit"]');
-                submitBtn.disabled = true;
-
-                // Disable all options in this message
-                const messageDiv = form.closest('.message-bubble');
-                const allOptions = messageDiv.querySelectorAll('.message-option');
-                allOptions.forEach(opt => {
-                    opt.disabled = true;
-                    opt.classList.add('opacity-50', 'cursor-not-allowed');
-                });
-
-                submitMessage(value);
-            }
-
-            async function submitMessage(message) {
-                clearValidationError(messageInput);
-                if (!message) {
-                    showValidationError('Jawaban wajib diisi.', messageInput);
-                    messageInput.focus();
-                    return;
-                }
-                if (!isLikelyMeaningfulAnswer(message)) {
-                    showValidationError('Jawaban belum cukup jelas. Silakan masukkan jawaban yang relevan.', messageInput);
-                    if (messageInput) messageInput.focus();
-                    return;
-                }
-
-                // Disable input and buttons (if exists)
-                if (messageInput) messageInput.disabled = true;
-                if (sendButton) sendButton.disabled = true;
-
-                // Add user message to UI
-                addMessage(message, true);
-
-                // Add loading indicator
-                const loadingDiv = document.createElement('div');
-                loadingDiv.id = 'loading-indicator';
-                loadingDiv.className = 'message-bubble flex justify-start';
-                loadingDiv.innerHTML = `
-                    <div class="max-w-xl w-full">
-                        <div class="bg-white text-gray-900 rounded-lg px-4 py-3 shadow-sm">
-                            <div class="flex space-x-2">
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-slow"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-slow" style="animation-delay: 0.2s"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-slow" style="animation-delay: 0.4s"></div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                messagesContainer.querySelector('.space-y-4').appendChild(loadingDiv);
-                scrollToBottom();
-
-                // Clear input (if exists)
-                if (messageInput) messageInput.value = '';
-
-                try {
-                    console.log('Sending message:', message);
-
-                    const response = await fetch(`/conversations/${conversationId}/messages`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        },
-                        body: JSON.stringify({
-                            message
-                        }),
-                    });
-
-                    console.log('Response status:', response.status);
-                    const data = await response.json();
-                    console.log('Response data:', data);
-
-                    // Remove loading indicator
-                    const loadingIndicator = document.getElementById('loading-indicator');
-                    if (loadingIndicator) {
-                        loadingIndicator.remove();
-                    }
-
-                    if (data.success) {
-                        // Check if response already includes AI message
-                        if (data.ai_response && data.ai_response.content) {
-                            // Use response directly (faster)
-                            const hasOptions = data.ai_response.has_options || false;
-                            const options = data.ai_response.options || [];
-                            const questionType = data.ai_response.question_type || null;
-
-                            addMessage(data.ai_response.content, false, hasOptions, options, questionType);
-
-                            // Re-enable input and buttons (if exists)
-                            if (messageInput) {
-                                messageInput.disabled = false;
-                                messageInput.focus();
-                            }
-                            if (sendButton) sendButton.disabled = false;
-                        } else {
-                            // Fallback: fetch messages
-                            setTimeout(async () => {
-                                const messagesResponse = await fetch(
-                                    `/conversations/${conversationId}/messages`);
-                                const messages = await messagesResponse.json();
-
-                                const lastMessage = messages[messages.length - 1];
-                                if (lastMessage && lastMessage.sender_type === 'ai') {
-                                    const hasOptions = lastMessage.metadata && lastMessage.metadata.has_options;
-                                    const options = hasOptions ? (lastMessage.metadata.options || []) : [];
-                                    const questionType = lastMessage.metadata ? (lastMessage.metadata
-                                        .question_type || null) : null;
-
-                                    addMessage(lastMessage.content, false, hasOptions, options, questionType);
-                                }
-
-                                // Re-enable input and buttons
-                                if (messageInput) {
-                                    messageInput.disabled = false;
-                                    messageInput.focus();
-                                }
-                                if (sendButton) sendButton.disabled = false;
-                            }, 500);
-                        }
-                    } else if (data.validation_error && data.ai_response) {
-                        // Handle validation error - show error message and keep user message
-                        const hasOptions = data.ai_response.has_options || false;
-                        const options = data.ai_response.options || [];
-                        const questionType = data.ai_response.question_type || null;
-
-                        addMessage(data.ai_response.content, false, hasOptions, options, questionType);
-
-                        // Re-enable input and buttons
-                        if (messageInput) {
-                            messageInput.disabled = false;
-                            messageInput.focus();
-                        }
-                        if (sendButton) sendButton.disabled = false;
-                    } else {
-                        // Other error
-                        showValidationError(data.message || 'Terjadi kesalahan saat mengirim pesan.', messageInput);
-
-                        // Re-enable input and buttons
-                        if (messageInput) {
-                            messageInput.disabled = false;
-                            messageInput.focus();
-                        }
-                        if (sendButton) sendButton.disabled = false;
-                    }
-                } catch (error) {
-                    console.error('Error sending message:', error);
-
-                    // Remove loading indicator
-                    const loadingIndicator = document.getElementById('loading-indicator');
-                    if (loadingIndicator) {
-                        loadingIndicator.remove();
-                    }
-
-                    showValidationError('Terjadi kesalahan saat mengirim pesan: ' + error.message, messageInput);
-
-                    // Re-enable input and buttons
-                    if (messageInput) messageInput.disabled = false;
-                    if (sendButton) sendButton.disabled = false;
-                }
-            }
-
-            // Message form submit (only if form exists)
-            if (messageForm) {
-                messageForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    await submitMessage(messageInput.value.trim());
-                });
-            }
-
-            // Focus input on load (only if exists)
-            if (messageInput) messageInput.focus();
-        </script>
-    @endpush
+@extends('layouts.user')
+@php($judulChat = $conversation?->title ?? 'Percakapan Baru')
+@section('title', $judulChat)
+@section('page-title', $judulChat)
+@section('page-sub', $conversation
+    ? (($conversation->department?->name ?? 'Agent') . ' · ' . $conversation->created_at->translatedFormat('d F Y'))
+    : 'Mulai percakapan — belum tersimpan')
+
+@section('topbar-actions')
+<a href="{{ route('pekerjaan.index') }}" class="btn">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/></svg>
+Pekerjaan Saya
+</a>
+@if($conversation)
+<form method="POST" action="{{ route('conversations.destroy', $conversation->id) }}"
+      data-confirm
+      data-confirm-judul="Hapus Percakapan"
+      data-confirm-teks="Percakapan &quot;{{ $conversation->namaProyek() }}&quot; beserta seluruh pesannya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan."
+      data-confirm-ok="Iya, hapus percakapan"
+      data-confirm-jenis="bahaya">
+@csrf @method('DELETE')
+<button type="submit" class="btn">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+Hapus
+</button>
+</form>
+@endif
 @endsection
+
+@push('style')
+<style>
+/* Layout kolom tengah ala claude.ai */
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 132px)}
+.msgs{flex:1;overflow-y:auto;padding:10px 0 20px}
+.chat-col{max-width:760px;margin:0 auto;width:100%;padding:0 8px}
+
+/* Pesan */
+.msg{display:flex;margin-bottom:22px}
+.msg.me{justify-content:flex-end}
+/* Batas lebar dipasang di flex item, bukan persentase di dalam kotak yang
+   lebarnya menyusut mengikuti isi — itu bikin teks pendek pecah per huruf. */
+.msg-in{max-width:100%;min-width:0}
+.msg.me .msg-in{max-width:min(560px,82%)}
+.msg.ai .bub{background:transparent;border:none;padding:0;font-size:15px;line-height:1.72;color:var(--ink)}
+.msg.me .bub{background:var(--primary-soft);color:var(--ink);border-radius:18px;border-bottom-right-radius:6px;padding:11px 16px;font-size:14.5px;line-height:1.65}
+.bub{white-space:pre-wrap;word-break:break-word}
+.bub-t{font-size:10.5px;margin-top:6px;color:var(--muted3)}
+.msg.me .bub-t{text-align:right}
+.ai-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--muted2);font-weight:600}
+.ai-av{width:22px;height:22px;border-radius:7px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none;padding:1px}
+.ai-av img{width:100%;height:100%;object-fit:contain;display:block}
+
+/* Pilihan cepat */
+.opts{display:grid;gap:7px;margin-top:13px}
+.opt{display:flex;align-items:flex-start;gap:11px;width:100%;border:1px solid var(--line2);background:#fff;border-radius:12px;padding:11px 13px;text-align:left;cursor:pointer;font-size:13.5px;font-family:inherit;color:var(--ink)}
+.opt:hover{border-color:var(--primary);background:var(--primary-soft)}
+.opt-n{width:22px;height:22px;border-radius:7px;background:var(--line3);color:var(--muted);display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+.opt:hover .opt-n{background:var(--primary);color:#fff}
+.opt.other{border-style:dashed;background:#fcfcfe;color:var(--muted)}
+
+/* Composer ala claude.ai */
+.composer-zone{padding-top:6px;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,247,251,0) 0%,var(--bg) 34%)}
+.composer{border:1px solid var(--line2);background:#fff;border-radius:22px;padding:14px 16px 10px;box-shadow:0 3px 16px rgba(30,33,48,.06);transition:border-color .15s,box-shadow .15s}
+.composer:focus-within{border-color:var(--primary);box-shadow:0 4px 22px rgba(245,93,20,.13)}
+.composer textarea{width:100%;border:none;outline:none;resize:none;font-family:inherit;font-size:15px;line-height:1.6;color:var(--ink);background:transparent;max-height:210px;min-height:26px}
+.composer textarea::placeholder{color:var(--muted3)}
+.comp-bar{display:flex;align-items:center;gap:7px;margin-top:9px}
+.comp-btn{width:33px;height:33px;border-radius:50%;border:1px solid var(--line2);background:#fff;color:var(--muted2);display:grid;place-items:center;cursor:pointer;flex:none}
+.comp-btn:hover{background:var(--primary-soft);color:var(--primary);border-color:var(--primary)}
+.comp-btn.rec{background:#fde3e1;color:#b23c35;border-color:#f0b8b4}
+.comp-send{width:33px;height:33px;border-radius:50%;border:none;background:var(--primary);color:#fff;display:grid;place-items:center;cursor:pointer;flex:none;transition:background .15s,opacity .15s}
+.comp-send:hover:not(:disabled){background:var(--primary-dark)}
+.comp-send:disabled{background:var(--line2);color:var(--muted3);cursor:not-allowed}
+.att-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.att{display:inline-flex;align-items:center;gap:6px;background:var(--line3);border-radius:8px;padding:4px 9px;font-size:11.5px;color:var(--muted)}
+.att button{border:none;background:transparent;cursor:pointer;color:var(--muted2);font-size:13px;line-height:1;padding:0}
+.chat-err{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--blok-fg);background:var(--blok-bg);border-radius:10px;padding:9px 12px;margin-bottom:9px}
+.typing{display:inline-flex;gap:4px;align-items:center}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--primary);display:block;animation:bl 1.3s infinite}
+.typing i:nth-child(2){animation-delay:.18s}
+.typing i:nth-child(3){animation-delay:.36s}
+@keyframes bl{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
+.done-note{text-align:center;background:var(--done-bg);color:var(--done-fg);border-radius:11px;padding:12px;font-size:13px;max-width:760px;margin:0 auto}
+.foot-note{text-align:center;font-size:11px;color:var(--muted3);margin:9px 0 4px}
+#composerBox[hidden]{display:none}
+.opts.bebas .opt:not(.batal){opacity:.5}
+.opt.batal{border-style:dashed;background:#fff;color:var(--muted)}
+.opt.batal:hover{border-color:var(--st-blok);background:var(--st-blok-bg);color:var(--st-blok)}
+.opt.batal:hover .opt-n{background:var(--st-blok);color:#fff}
+.selesai-box{text-align:center;background:#fff;border:1px solid var(--line2);border-radius:16px;padding:20px 18px;box-shadow:0 3px 16px rgba(30,33,48,.06)}
+.selesai-ico{width:46px;height:46px;border-radius:50%;background:var(--st-done-bg);color:var(--st-done);display:grid;place-items:center;margin:0 auto 11px;animation:pop .45s cubic-bezier(.2,1.4,.5,1) both}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.selesai-t{font-size:15px;font-weight:800;letter-spacing:-.01em}
+.selesai-s{font-size:12.5px;color:var(--muted2);margin-top:4px}
+.selesai-aksi{display:flex;gap:9px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.konfeti{position:fixed;inset:0;pointer-events:none;z-index:400;overflow:hidden}
+.konfeti i{position:absolute;top:-14px;width:8px;height:13px;border-radius:2px;display:block;animation:jatuh linear forwards}
+@keyframes jatuh{to{transform:translateY(105vh) rotate(760deg);opacity:.15}}
+@media(prefers-reduced-motion:reduce){.konfeti{display:none}.selesai-ico{animation:none}}
+@media(max-width:720px){.chat-col{padding:0 4px}.msg.ai .bub{font-size:14.5px}}
+</style>
+@endpush
+
+@php($pesanAiTerakhir = $conversation?->messages->where('sender_type', 'ai')->last())
+@php($metaAwal = $pesanAiTerakhir?->metadata ?? \App\Http\Controllers\ChatController::metadataAwal())
+@php($opsiAwal = [
+    'options' => ($metaAwal['has_options'] ?? false) ? ($metaAwal['options'] ?? []) : [],
+    'question_type' => $metaAwal['question_type'] ?? null,
+])
+@section('content')
+<div class="chat-wrap">
+<div class="msgs" id="messagesContainer">
+<div class="chat-col" id="messageList">
+@if($conversation)
+@foreach($conversation->messages as $m)
+<div class="msg {{ $m->sender_type === 'user' ? 'me' : 'ai' }}" @if($m->sender_type !== 'user') data-ai @endif>
+<div class="msg-in">
+@if($m->sender_type !== 'user')
+<div class="ai-head">
+<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>
+INaAI Agent
+</div>
+@endif
+<div class="bub">{{ $m->content }}<div class="bub-t">{{ $m->created_at->format('H:i') }}</div></div>
+</div>
+</div>
+@endforeach
+@else
+{{-- Layar "Chat Baru": pertanyaan pembuka ditampilkan saja, belum disimpan.
+     Percakapan baru dibuat setelah user mengirim jawaban pertama. --}}
+<div class="msg ai" data-ai>
+<div class="msg-in">
+<div class="ai-head">
+<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>
+INaAI Agent
+</div>
+<div class="bub">{{ \App\Http\Controllers\ChatController::PERTANYAAN_AWAL }}<div class="bub-t">{{ now()->format('H:i') }}</div></div>
+</div>
+</div>
+@endif
+</div>
+</div>
+
+@if($conversation?->isActive() ?? true)
+<div class="composer-zone">
+<div class="chat-col">
+<div class="chat-err" id="chatError" role="alert" style="display:none"></div>
+<div id="composerBox">
+<form id="messageForm">
+@csrf
+<div class="composer">
+<textarea id="messageInput" rows="1" placeholder="Tulis pesan untuk INaAI Agent..."></textarea>
+<div class="att-list" id="attList"></div>
+<div class="comp-bar">
+<button type="button" class="comp-btn" id="attachBtn" title="Tambah lampiran" aria-label="Tambah lampiran">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+</button>
+<input type="file" id="attachInput" multiple style="display:none" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp">
+<button type="button" class="comp-btn" id="voiceBtn" title="Rekam suara" aria-label="Rekam suara" style="margin-left:auto">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>
+</button>
+<button type="submit" class="comp-send" id="sendButton" title="Kirim" aria-label="Kirim" disabled>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+</button>
+</div>
+</div>
+</form>
+<div class="foot-note">INaAI Agent dapat membuat kesalahan. Periksa kembali informasi penting.</div>
+</div>
+</div>
+</div>
+@else
+<div class="done-note">Percakapan ini sudah selesai.</div>
+@endif
+</div>
+@endsection
+
+@push('script')
+<script>
+/* Percakapan bisa belum tersimpan (layar "Chat Baru"): id diisi setelah pesan pertama. */
+let conversationId = {{ $conversation?->id ?? 'null' }};
+const urlMulai = @json(route('chat.mulai'));
+const urlKirim = function () { return '/conversations/' + conversationId + '/messages'; };
+
+/* Pilihan cepat datang dari server (metadata pesan AI), bukan ditebak di klien. */
+const opsiAwal = @json($opsiAwal);
+
+const messagesContainer = document.getElementById('messagesContainer');
+const messageList = document.getElementById('messageList');
+const messageForm = document.getElementById('messageForm');
+const messageInput = document.getElementById('messageInput');
+const sendButton = document.getElementById('sendButton');
+const composerBox = document.getElementById('composerBox');
+const chatError = document.getElementById('chatError');
+const attachBtn = document.getElementById('attachBtn');
+const attachInput = document.getElementById('attachInput');
+const attList = document.getElementById('attList');
+const voiceBtn = document.getElementById('voiceBtn');
+
+let lampiran = [];
+
+scrollToBottom();
+
+function scrollToBottom() {
+if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function escapeHtml(value) {
+return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
+}
+
+/* Saringan ringan di klien; validasi sebenarnya tetap di server. */
+function jawabanBermakna(value) {
+const normal = String(value).trim();
+if (normal.length < 2) return false;
+const huruf = (normal.match(/[A-Za-zÀ-ÿ]/g) || []).join('');
+const alnum = normal.replace(/[^A-Za-zÀ-ÿ0-9]/g, '');
+if (alnum.length < 2) return false;
+if (huruf.length === 0) return /^[0-9]+$/.test(alnum);
+return true;
+}
+
+function tampilError(pesan) {
+if (!chatError) return;
+chatError.textContent = pesan;
+chatError.style.display = 'flex';
+}
+
+function bersihkanError() {
+if (!chatError) return;
+chatError.textContent = '';
+chatError.style.display = 'none';
+}
+
+function conversationIsActive() {
+return {{ ($conversation?->isActive() ?? true) ? 'true' : 'false' }};
+}
+
+function tampilComposer(tampil) {
+if (!composerBox) return;
+composerBox.hidden = !tampil;
+if (tampil && messageInput) messageInput.focus();
+}
+
+function hapusOpsi() {
+document.querySelectorAll('.msgs .opts').forEach(function (el) { el.remove(); });
+}
+
+/**
+ * Render pilihan cepat dari server tepat di bawah pertanyaan AI terakhir,
+ * lalu sembunyikan kotak tulis. "Jawaban lain" adalah jalan keluarnya:
+ * server memang mengharapkan klien yang menyediakan opsi bebas ini.
+ */
+function showOptions(options, questionType) {
+hapusOpsi();
+
+if (!conversationIsActive()) { tampilComposer(false); return; }
+
+const daftar = (options || []).filter(function (o) {
+return String(o).trim() !== '' && String(o).trim().toLowerCase() !== 'something else';
+});
+
+if (daftar.length === 0) { tampilComposer(true); return; }
+
+const pesanAi = document.querySelectorAll('.msgs [data-ai] .msg-in');
+const induk = pesanAi[pesanAi.length - 1];
+if (!induk) { tampilComposer(true); return; }
+
+const kotak = document.createElement('div');
+kotak.className = 'opts';
+kotak.dataset.questionType = questionType || '';
+kotak.innerHTML = daftar.map(function (o, i) {
+return '<button type="button" class="opt" data-value="' + escapeHtml(o) + '">' +
+'<span class="opt-n">' + (i + 1) + '</span><span>' + escapeHtml(o) + '</span></button>';
+}).join('') +
+'<button type="button" class="opt other" data-lain>' +
+'<span class="opt-n">+</span><span>Jawaban lain</span></button>';
+induk.appendChild(kotak);
+
+tampilComposer(false);
+
+function batalkanPilihan() {
+kotak.classList.remove('bebas');
+var batal = kotak.querySelector('[data-batal]');
+if (batal) batal.remove();
+tampilComposer(false);
+scrollToBottom();
+}
+
+kotak.querySelectorAll('.opt').forEach(function (b) {
+b.addEventListener('click', function () {
+if (b.hasAttribute('data-lain')) {
+if (kotak.classList.contains('bebas')) return;
+// Pilihan tetap terlihat (diredupkan), kotak tulis dibuka, dan
+// disediakan jalan kembali lewat "Batalkan pilihan".
+kotak.classList.add('bebas');
+var batal = document.createElement('button');
+batal.type = 'button';
+batal.className = 'opt batal';
+batal.setAttribute('data-batal', '');
+batal.innerHTML = '<span class="opt-n">&times;</span><span>Batalkan pilihan</span>';
+batal.addEventListener('click', batalkanPilihan);
+kotak.appendChild(batal);
+tampilComposer(true);
+scrollToBottom();
+return;
+}
+submitMessage(b.getAttribute('data-value'));
+});
+});
+}
+
+function addMessage(content, isUser, hasOptions, options, questionType) {
+const d = document.createElement('div');
+d.className = 'msg ' + (isUser ? 'me' : 'ai');
+const now = new Date();
+const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+if (!isUser) d.setAttribute('data-ai', '');
+d.innerHTML = '<div class="msg-in">' +
+(isUser ? '' : '<div class="ai-head"><span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>INaAI Agent</div>') +
+'<div class="bub">' + escapeHtml(content) + '<div class="bub-t">' + t + '</div></div></div>';
+messageList.appendChild(d);
+if (!isUser) showOptions(hasOptions ? (options || []) : [], questionType);
+scrollToBottom();
+}
+
+function showTyping() {
+const d = document.createElement('div');
+d.className = 'msg ai';
+d.id = 'typingRow';
+d.innerHTML = '<div class="msg-in"><div class="bub"><span class="typing"><i></i><i></i><i></i></span></div></div>';
+messageList.appendChild(d);
+scrollToBottom();
+}
+
+function hideTyping() {
+const t = document.getElementById('typingRow');
+if (t) t.remove();
+}
+
+async function submitMessage(message) {
+if (messageInput && messageInput.disabled) return;
+bersihkanError();
+
+if (!message) {
+tampilError('Jawaban wajib diisi.');
+if (messageInput) messageInput.focus();
+return;
+}
+if (!jawabanBermakna(message)) {
+tampilError('Jawaban belum cukup jelas. Silakan tulis jawaban yang relevan.');
+if (messageInput) messageInput.focus();
+return;
+}
+
+messageInput.disabled = true;
+sendButton.disabled = true;
+hapusOpsi();
+addMessage(message, true);
+messageInput.value = '';
+autoGrow();
+syncSendButton();
+showTyping();
+
+try {
+// Percakapan baru belum punya baris di database — pesan pertama yang membuatnya.
+const res = await fetch(conversationId ? urlKirim() : urlMulai, {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+'Accept': 'application/json',
+'X-Requested-With': 'XMLHttpRequest'
+},
+body: JSON.stringify({ message: message })
+});
+const data = await res.json();
+hideTyping();
+
+if (data.conversation_id && !conversationId) {
+conversationId = data.conversation_id;
+history.replaceState({}, '', data.conversation_url);
+// Daftar riwayat di sidebar sekarang usang.
+window.dispatchEvent(new Event('inaai:riwayat-usang'));
+}
+
+// Balasan validasi juga berupa pesan AI lengkap dengan pilihan sebelumnya.
+if (data.ai_response && data.ai_response.content) {
+addMessage(
+data.ai_response.content,
+false,
+!!data.ai_response.has_options,
+data.ai_response.options || [],
+data.ai_response.question_type || null
+);
+if (data.selesai) { rayakan(); return; }
+} else {
+tampilError(data.message || 'Terjadi kesalahan saat memproses permintaan Anda.');
+}
+} catch (e) {
+hideTyping();
+tampilError('Koneksi bermasalah. Silakan coba lagi.');
+}
+
+messageInput.disabled = false;
+syncSendButton();
+messageInput.focus();
+}
+
+/**
+ * Sesi selesai: konfeti singkat, kotak tulis diganti tombol Chat Baru.
+ */
+function rayakan() {
+hapusOpsi();
+var zona = document.querySelector('.composer-zone .chat-col');
+if (zona) {
+zona.innerHTML =
+'<div class="selesai-box">' +
+'<div class="selesai-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg></div>' +
+'<div class="selesai-t">Catatan pekerjaan tersimpan</div>' +
+'<div class="selesai-s">Sesi ini sudah ditutup. Hasilnya bisa dilihat di Pekerjaan Saya.</div>' +
+'<div class="selesai-aksi">' +
+'<a class="btn" href="{{ route('pekerjaan.index') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/></svg>Pekerjaan Saya</a>' +
+'<a class="btn btn-primary" href="{{ route('chat.baru') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>Chat Baru</a>' +
+'</div></div>';
+}
+konfeti();
+if (window.InaaiToast) window.InaaiToast.sukses('Catatan pekerjaan berhasil disimpan.', { judul: 'Sesi Selesai' });
+window.dispatchEvent(new Event('inaai:riwayat-usang'));
+scrollToBottom();
+}
+
+function konfeti() {
+var warna = ['#f55d14', '#1d4ed8', '#047857', '#7e22ce', '#be123c', '#b45309'];
+var lapis = document.createElement('div');
+lapis.className = 'konfeti';
+for (var i = 0; i < 70; i++) {
+var k = document.createElement('i');
+k.style.left = (Math.random() * 100) + '%';
+k.style.background = warna[i % warna.length];
+k.style.animationDelay = (Math.random() * 0.5) + 's';
+k.style.animationDuration = (2.4 + Math.random() * 1.6) + 's';
+k.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+lapis.appendChild(k);
+}
+document.body.appendChild(lapis);
+setTimeout(function () { lapis.remove(); }, 4600);
+}
+
+function autoGrow() {
+messageInput.style.height = 'auto';
+messageInput.style.height = Math.min(messageInput.scrollHeight, 210) + 'px';
+}
+
+function syncSendButton() {
+if (!sendButton) return;
+sendButton.disabled = messageInput.disabled || messageInput.value.trim() === '';
+}
+
+function renderLampiran() {
+attList.innerHTML = lampiran.map(function (f, i) {
+return '<span class="att">' + escapeHtml(f.name) + '<button type="button" data-i="' + i + '">✕</button></span>';
+}).join('');
+attList.querySelectorAll('button').forEach(function (b) {
+b.addEventListener('click', function () {
+lampiran.splice(parseInt(b.dataset.i, 10), 1);
+renderLampiran();
+});
+});
+}
+
+if (messageInput) {
+messageInput.addEventListener('input', function () { autoGrow(); syncSendButton(); bersihkanError(); });
+messageInput.addEventListener('keydown', function (e) {
+if (e.key === 'Enter' && !e.shiftKey) {
+e.preventDefault();
+submitMessage(messageInput.value.trim());
+}
+});
+messageInput.focus();
+syncSendButton();
+}
+
+if (messageForm) {
+messageForm.addEventListener('submit', function (e) {
+e.preventDefault();
+submitMessage(messageInput.value.trim());
+});
+}
+
+if (attachBtn) {
+attachBtn.addEventListener('click', function () { attachInput.click(); });
+attachInput.addEventListener('change', function () {
+Array.prototype.forEach.call(attachInput.files, function (f) { lampiran.push(f); });
+attachInput.value = '';
+renderLampiran();
+});
+}
+
+if (voiceBtn) {
+let rec = null;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+voiceBtn.addEventListener('click', function () {
+if (!SR) {
+alert('Browser ini belum mendukung input suara. Gunakan Chrome atau Safari terbaru.');
+return;
+}
+if (rec) { rec.stop(); return; }
+rec = new SR();
+rec.lang = 'id-ID';
+rec.interimResults = false;
+voiceBtn.classList.add('rec');
+rec.onresult = function (e) {
+const teks = e.results[0][0].transcript;
+messageInput.value = (messageInput.value ? messageInput.value + ' ' : '') + teks;
+autoGrow();
+syncSendButton();
+};
+rec.onend = function () { voiceBtn.classList.remove('rec'); rec = null; messageInput.focus(); };
+rec.onerror = function () { voiceBtn.classList.remove('rec'); rec = null; };
+rec.start();
+});
+}
+
+/* Pilihan untuk pesan AI terakhir yang dirender server. */
+showOptions(opsiAwal.options || [], opsiAwal.question_type || null);
+// Blok pilihan menambah tinggi composer, jadi posisi gulir perlu disetel ulang.
+scrollToBottom();
+</script>
+@endpush

@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\Department;
 use App\Models\Message;
-use App\Models\Pekerjaan;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\QuestionTemplate;
+use App\Models\User;
 use App\Services\Agent\AgentOrchestrator;
 use App\Services\Agent\OptionGenerator;
 use Illuminate\Http\Request;
@@ -20,6 +22,110 @@ class ChatController extends Controller
     {
         $this->agent = $agent;
         $this->optionGenerator = $optionGenerator;
+    }
+
+    /** Jumlah riwayat yang dimuat per permintaan pada panel riwayat. */
+    public const RIWAYAT_PER_HALAMAN = 50;
+
+    /** Pesan pembuka agent — pertanyaan pertama selalu menanyakan proyek yang dikerjakan. */
+    public const PERTANYAAN_AWAL = 'Halo! Senang bertemu dengan Anda. Apa proyek yang sedang Anda kerjakan hari ini?';
+
+    public const PROMPT_AWAL = 'Sapa user dengan hangat, lalu gali proyek, objektif, harapan, task, dan estimasi durasi pengerjaan.';
+
+    /**
+     * Metadata pesan pembuka: pilihan cepat langkah pertama dikirim dari server
+     * (lihat OptionGenerator) supaya klien tidak perlu menebak sendiri.
+     */
+    public static function metadataAwal(): array
+    {
+        return [
+            'system_prompt' => self::PROMPT_AWAL,
+            'has_options' => true,
+            'options' => ['Proyek Baru', 'Lanjut Proyek Sebelumnya'],
+            'question_type' => 'project_selection',
+        ];
+    }
+
+    /**
+     * Buat percakapan baru berikut pesan pembukanya.
+     */
+    public static function percakapanBaru(User $user): Conversation
+    {
+        $conversation = Conversation::create([
+            'user_id' => $user->id,
+            'department_id' => $user->department_id,
+            'title' => 'Percakapan Baru',
+            'status' => 'active',
+            'current_step' => 1,
+        ]);
+
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'ai',
+            'content' => self::PERTANYAAN_AWAL,
+            'step_number' => 1,
+            'metadata' => self::metadataAwal(),
+        ]);
+
+        return $conversation;
+    }
+
+    /**
+     * Tombol "Chat Baru": tampilkan layar percakapan kosong tanpa menyentuh database.
+     * Barisnya baru dibuat saat user mengirim jawaban pertama (lihat mulai()).
+     */
+    public function baru()
+    {
+        return view('chat', ['conversation' => null]);
+    }
+
+    /**
+     * Pesan pertama dari layar "Chat Baru": buat percakapannya sekarang,
+     * lalu proses seperti pengiriman pesan biasa.
+     */
+    public function mulai(Request $request)
+    {
+        $request->validate(['message' => ['required', 'string']]);
+
+        $conversation = self::percakapanBaru($request->user());
+        $response = $this->sendMessage($request, $conversation);
+
+        $data = $response->getData(true);
+        $data['conversation_id'] = $conversation->id;
+        $data['conversation_url'] = route('chat.show', $conversation->id);
+
+        return response()->json($data, $response->getStatusCode());
+    }
+
+    /**
+     * Riwayat percakapan bertahap untuk panel riwayat (50 per permintaan).
+     */
+    public function riwayat(Request $request)
+    {
+        $lewati = max(0, (int) $request->query('offset', 0));
+        $batas = self::RIWAYAT_PER_HALAMAN;
+
+        // Ambil satu baris ekstra untuk tahu apakah masih ada lanjutannya.
+        $baris = Conversation::with(['pesanTerakhirUser', 'pesanDetail'])
+            ->where('user_id', $request->user()->id)
+            ->orderByDesc('updated_at')
+            ->skip($lewati)
+            ->take($batas + 1)
+            ->get();
+
+        $habis = $baris->count() <= $batas;
+        $riwayat = $baris->take($batas);
+
+        $html = view('partials.hist-list', [
+            'riwayat' => $riwayat,
+            'aktifId' => $request->query('aktif') !== null ? (int) $request->query('aktif') : null,
+        ])->render();
+
+        return response()->json([
+            'html' => $html,
+            'jumlah' => $riwayat->count(),
+            'habis' => $habis,
+        ]);
     }
 
     public function startConversation(Request $request)
@@ -54,14 +160,9 @@ class ChatController extends Controller
             Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'ai',
-                'content' => 'Halo! Senang bertemu dengan Anda. Apa proyek yang sedang Anda kerjakan hari ini?',
+                'content' => self::PERTANYAAN_AWAL,
                 'step_number' => 1,
-                'metadata' => [
-                    'system_prompt' => 'Sapa user dengan hangat, lalu gali proyek, objektif, harapan, task, dan estimasi durasi pengerjaan.',
-                    'has_options' => true,
-                    'options' => ['Proyek Baru', 'Lanjut Proyek Sebelumnya'],
-                    'question_type' => 'project_selection',
-                ],
+                'metadata' => self::metadataAwal(),
             ]);
         }
 
@@ -148,8 +249,14 @@ class ChatController extends Controller
 
         // Update conversation title with first user message (smart title)
         if ($conversation->current_step === 1 && $conversation->messages()->where('sender_type', 'user')->count() === 1) {
-            $title = $this->generateConversationTitle($message);
-            $conversation->update(['title' => $title]);
+            // "Proyek Baru"/"Lanjut Proyek Sebelumnya" hanya label pilihan langkah
+            // pertama, bukan nama proyek — judul menunggu jawaban berikutnya.
+            if (! $this->labelPilihanAwal($message)) {
+                $conversation->update(['title' => $this->generateConversationTitle($message)]);
+            }
+        } elseif (in_array(trim((string) $conversation->title), ['Percakapan Baru', 'New Chat'], true)
+            && $this->isValidProjectName($message)) {
+            $conversation->update(['title' => $this->generateConversationTitle($message)]);
         }
 
         // Check if user selected "Lanjut Proyek Sebelumnya"
@@ -266,7 +373,7 @@ class ChatController extends Controller
                 $metadata['daily_activity'] = $dailyActivity;
                 $conversation->update(['metadata' => $metadata]);
                 $conversation->markAsCompleted();
-                $this->savePekerjaan($conversation, $dailyActivity['projects']);
+                $this->simpanHasilPercakapan($conversation, $dailyActivity['projects']);
 
                 $responseContent = 'Baik, catatan aktivitas hari ini sudah lengkap dan disimpan. Pekerjaan Anda: '
                     . collect($dailyActivity['projects'])
@@ -276,15 +383,20 @@ class ChatController extends Controller
                 $aiMessage->update(['content' => $responseContent]);
             }
 
+            // Saat percakapan ditutup, yang dikirim ke klien harus ringkasan yang
+            // tersimpan — bukan hasil parse pertanyaan berikutnya — dan tanpa pilihan.
+            $selesai = ! $conversation->fresh()->isActive();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Pesan berhasil dikirim',
+                'selesai' => $selesai,
                 'ai_response' => [
-                    'content' => $parsedResponse['message'],
+                    'content' => $selesai ? $responseContent : $parsedResponse['message'],
                     'type' => $agentResponse['response']['type'],
                     'confidence' => $agentResponse['response']['confidence'],
-                    'has_options' => $parsedResponse['has_options'],
-                    'options' => $parsedResponse['options'],
+                    'has_options' => $selesai ? false : $parsedResponse['has_options'],
+                    'options' => $selesai ? [] : $parsedResponse['options'],
                     'question_type' => $parsedResponse['type'],
                 ],
             ]);
@@ -765,40 +877,70 @@ class ChatController extends Controller
         ];
     }
 
-    private function savePekerjaan(Conversation $conversation, array $projectActivities): void
+    /**
+     * Simpan hasil percakapan menjadi proyek dan tugas.
+     * Tabel lama `pekerjaan` sudah tidak dipakai; satu-satunya penyimpanan
+     * sekarang adalah Project + Task, yang juga menjadi sumber halaman
+     * Pekerjaan Saya dan seluruh halaman admin.
+     */
+    private function simpanHasilPercakapan(Conversation $conversation, array $projectActivities): void
     {
-        $user = $conversation->user;
-
         foreach ($projectActivities as $activity) {
             $projectName = $activity['project_company'] ?? 'Tidak disebutkan';
             $workDescription = $activity['work_description'] ?? $activity['summary'];
-            
-            // Check if this is a continued project
-            $existingPekerjaan = Pekerjaan::where('user_id', $user->id)
-                ->where('nama_projek', $projectName)
-                ->where('status', 'on going')
-                ->latest()
-                ->first();
 
-            if ($existingPekerjaan) {
-                // Update existing pekerjaan
-                $existingPekerjaan->update([
-                    'pekerjaan' => $workDescription,
-                    'updated_at' => now(),
-                ]);
-            } else {
-                // Create new pekerjaan
-                Pekerjaan::create([
-                    'user_id' => $user->id,
-                    'name' => $user->name,
-                    'division' => $user->department?->name,
-                    'nama_projek' => $projectName,
-                    'pekerjaan' => $workDescription,
-                    'status' => 'on going',
-                    'kategori' => 'Medium',
-                ]);
-            }
+            $this->simpanKeTugas($conversation, $projectName, $workDescription);
         }
+    }
+
+    /**
+     * Hasil percakapan juga dicatat sebagai Task supaya muncul di halaman
+     * "Pekerjaan Saya"; tabel pekerjaan lama tetap diisi untuk laporan admin.
+     */
+    private function simpanKeTugas(Conversation $conversation, string $projectName, string $workDescription): void
+    {
+        $user = $conversation->user;
+
+        // "Baru"/"Sebelumnya" berasal dari label pilihan, bukan nama proyek sungguhan.
+        $generik = ['baru', 'new', 'sebelumnya', 'proyek', 'project', 'tidak disebutkan'];
+        if (mb_strlen(trim($projectName)) < 3 || in_array(mb_strtolower(trim($projectName)), $generik, true)) {
+            $judulPercakapan = trim((string) $conversation->title);
+            $projectName = ($judulPercakapan !== '' && ! in_array($judulPercakapan, ['Percakapan Baru', 'New Chat'], true))
+                ? preg_replace('/^Proyek:\s*/i', '', $judulPercakapan)
+                : 'Tanpa Proyek';
+        }
+
+        $project = Project::firstOrCreate(
+            ['nama' => $projectName],
+            [
+                'mulai' => now()->startOfMonth(),
+                'selesai' => now()->addMonth()->endOfMonth(),
+                'created_by' => $user->id,
+            ]
+        );
+
+        $judul = \Illuminate\Support\Str::limit(trim($workDescription) ?: $projectName, 120, '');
+
+        $sudahAda = Task::where('user_id', $user->id)
+            ->where('project_id', $project->id)
+            ->where('judul', $judul)
+            ->exists();
+
+        if ($sudahAda) {
+            return;
+        }
+
+        Task::create([
+            'judul' => $judul,
+            'deskripsi' => $workDescription,
+            'project_id' => $project->id,
+            'user_id' => $user->id,
+            'created_by' => $user->id,
+            'status' => Task::STATUS_IN_PROGRESS,
+            'prioritas' => 'Sedang',
+            'mulai' => now()->toDateString(),
+            'selesai' => now()->addWeek()->toDateString(),
+        ]);
     }
 
     private function extractExplicitProject(string $content): ?string
@@ -903,7 +1045,7 @@ class ChatController extends Controller
         $missingProjects = array_slice($projects, $projectCount ?: 0);
 
         foreach ($missingProjects as $project) {
-            $content = rtrim($content) . "\n\nProyek: {$project}\nObjektif:\nHarapan:\nTask:\nEstimasi:";
+            $content = rtrim($content) . "\n\nProyek: {$project}\nObjektif:\nTarget:\nTask:\nEstimasi:";
         }
 
         return $content;
@@ -939,6 +1081,14 @@ class ChatController extends Controller
     /**
      * Generate smart conversation title from user's first message
      */
+    /** Jawaban langkah pertama yang berupa label pilihan, bukan nama proyek. */
+    private function labelPilihanAwal(?string $message): bool
+    {
+        $t = mb_strtolower(trim((string) $message));
+
+        return in_array($t, ['proyek baru', 'lanjut proyek sebelumnya', 'proyek sebelumnya'], true);
+    }
+
     private function generateConversationTitle(string $message): string
     {
         $message = trim($message);
@@ -1065,14 +1215,19 @@ class ChatController extends Controller
      */
     private function handleContinuePreviousProject(Conversation $conversation): \Illuminate\Http\JsonResponse
     {
-        // Get user's previous projects from pekerjaan table
-        $previousProjects = Pekerjaan::where('user_id', auth()->id())
-            ->select('nama_projek')
-            ->distinct()
-            ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->pluck('nama_projek')
+        // Sumbernya harus sama dengan dropdown proyek pada form Tugas Baru,
+        // yaitu tabel projects — bukan tabel pekerjaan lama, yang isinya berbeda.
+        $userId = auth()->id();
+
+        $milikSaya = Project::whereHas('tasks', fn ($q) => $q->where('user_id', $userId))
+            ->orderByDesc('updated_at')
+            ->limit(6)
+            ->pluck('nama');
+
+        // Belum punya tugas sama sekali: tawarkan proyek yang tersedia.
+        $previousProjects = ($milikSaya->isNotEmpty() ? $milikSaya : Project::orderBy('nama')->limit(6)->pluck('nama'))
             ->filter()
+            ->unique()
             ->values()
             ->toArray();
 

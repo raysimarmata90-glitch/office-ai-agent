@@ -72,10 +72,6 @@ class User extends Authenticatable
         return $this->hasMany(Conversation::class);
     }
 
-    public function pekerjaan(): HasMany
-    {
-        return $this->hasMany(Pekerjaan::class);
-    }
 
     public function tasks(): HasMany
     {

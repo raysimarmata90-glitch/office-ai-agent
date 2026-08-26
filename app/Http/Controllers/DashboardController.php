@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Conversation;
 use App\Models\Department;
-use App\Models\Pekerjaan;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -28,13 +27,4 @@ class DashboardController extends Controller
         return redirect()->route('chat.baru');
     }
 
-    public function pekerjaan()
-    {
-        $user = auth()->user();
-        $pekerjaan = Pekerjaan::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-
-        return view('pekerjaan', compact('user', 'pekerjaan'));
-    }
 }

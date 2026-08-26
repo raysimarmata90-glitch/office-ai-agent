@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\Department;
 use App\Models\Message;
-use App\Models\Pekerjaan;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\QuestionTemplate;
@@ -374,7 +373,7 @@ class ChatController extends Controller
                 $metadata['daily_activity'] = $dailyActivity;
                 $conversation->update(['metadata' => $metadata]);
                 $conversation->markAsCompleted();
-                $this->savePekerjaan($conversation, $dailyActivity['projects']);
+                $this->simpanHasilPercakapan($conversation, $dailyActivity['projects']);
 
                 $responseContent = 'Baik, catatan aktivitas hari ini sudah lengkap dan disimpan. Pekerjaan Anda: '
                     . collect($dailyActivity['projects'])
@@ -878,39 +877,17 @@ class ChatController extends Controller
         ];
     }
 
-    private function savePekerjaan(Conversation $conversation, array $projectActivities): void
+    /**
+     * Simpan hasil percakapan menjadi proyek dan tugas.
+     * Tabel lama `pekerjaan` sudah tidak dipakai; satu-satunya penyimpanan
+     * sekarang adalah Project + Task, yang juga menjadi sumber halaman
+     * Pekerjaan Saya dan seluruh halaman admin.
+     */
+    private function simpanHasilPercakapan(Conversation $conversation, array $projectActivities): void
     {
-        $user = $conversation->user;
-
         foreach ($projectActivities as $activity) {
             $projectName = $activity['project_company'] ?? 'Tidak disebutkan';
             $workDescription = $activity['work_description'] ?? $activity['summary'];
-            
-            // Check if this is a continued project
-            $existingPekerjaan = Pekerjaan::where('user_id', $user->id)
-                ->where('nama_projek', $projectName)
-                ->where('status', 'on going')
-                ->latest()
-                ->first();
-
-            if ($existingPekerjaan) {
-                // Update existing pekerjaan
-                $existingPekerjaan->update([
-                    'pekerjaan' => $workDescription,
-                    'updated_at' => now(),
-                ]);
-            } else {
-                // Create new pekerjaan
-                Pekerjaan::create([
-                    'user_id' => $user->id,
-                    'name' => $user->name,
-                    'division' => $user->department?->name,
-                    'nama_projek' => $projectName,
-                    'pekerjaan' => $workDescription,
-                    'status' => 'on going',
-                    'kategori' => 'Medium',
-                ]);
-            }
 
             $this->simpanKeTugas($conversation, $projectName, $workDescription);
         }

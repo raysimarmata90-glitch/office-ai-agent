@@ -67,7 +67,6 @@ Route::middleware('auth')->group(function () {
 // Admin Routes
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
-    Route::patch('/pekerjaan/{pekerjaan}', [AdminDashboardController::class, 'updatePekerjaan'])->name('pekerjaan.update');
     Route::get('/users', [AdminDashboardController::class, 'users'])->name('users');
     Route::post('/users/{user}/toggle-status', [AdminDashboardController::class, 'toggleUserStatus'])->name('users.toggle-status');
     Route::get('/users/{user}', [AdminDashboardController::class, 'showUser'])->name('users.show');

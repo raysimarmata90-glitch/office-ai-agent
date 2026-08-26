@@ -114,7 +114,9 @@ th.asc .sort-ico,th.desc .sort-ico{opacity:1;color:var(--primary)}
 .pager input{width:58px}
 .pg-btn{border:1px solid var(--line2);background:#fff;border-radius:7px;padding:5px 10px;cursor:pointer;font-size:12.5px}
 .pg-btn:hover:not(:disabled){background:var(--line3)}
-.pg-btn:disabled{opacity:.42;cursor:not-allowed}
+.pg-btn:disabled,.pg-btn.mati{opacity:.42;cursor:not-allowed}
+/* Pager server memakai <a>/<span>, jadi ikonnya perlu perataan sendiri. */
+a.pg-btn,span.pg-btn{display:inline-flex;align-items:center;color:var(--ink);text-decoration:none}
 .avatar{width:28px;height:28px;border-radius:8px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-weight:700;font-size:11px;flex:none}
 /* Avatar berfoto: gambar mengisi penuh kotaknya, mengikuti radius avatar. */
 .avatar{overflow:hidden}

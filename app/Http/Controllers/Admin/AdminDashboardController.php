@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Department;
-use App\Models\Pekerjaan;
+use App\Models\Message;
 use App\Models\Project;
 use App\Models\Role;
 use App\Models\Task;
@@ -32,7 +32,7 @@ class AdminDashboardController extends Controller
             [
                 'label' => 'Total Proyek',
                 'nilai' => $projects->count(),
-                'sub' => $projects->where('berisiko', true)->count() . ' berisiko',
+                'sub' => $projects->filter(fn ($p) => $p->tasks->isNotEmpty())->count() . ' punya tugas',
             ],
             [
                 'label' => 'Total Tugas',
@@ -325,17 +325,6 @@ class AdminDashboardController extends Controller
         ]);
     }
 
-    public function updatePekerjaan(Request $request, Pekerjaan $pekerjaan)
-    {
-        $validated = $request->validate([
-            'status' => ['required', Rule::in(['on going', 'completed'])],
-            'kategori' => ['required', Rule::in(['Highest', 'High', 'Medium', 'Low', 'Lowest'])],
-        ]);
-
-        $pekerjaan->update($validated);
-
-        return back()->with('success', 'Status dan kategori pekerjaan berhasil diperbarui.');
-    }
 
     public function toggleUserStatus(User $user)
     {
@@ -353,26 +342,46 @@ class AdminDashboardController extends Controller
         );
     }
 
-    public function conversations()
+    public function conversations(Request $request)
     {
-        // Semua baris dikirim sekali; pencarian, filter, urutan, dan halaman
-        // ditangani komponen tabel yang sama dengan halaman lain.
+        $cari = trim((string) $request->query('q', ''));
+        $status = (string) $request->query('status', '');
+        $depId = (string) $request->query('departemen', '');
+        $perHalaman = (int) $request->query('per_page', 10);
+        $perHalaman = in_array($perHalaman, [10, 25, 50, 100], true) ? $perHalaman : 10;
+
+        // Dipaginasi di server: jumlah percakapan tumbuh terus seiring pemakaian,
+        // jadi mengirim seluruh baris ke browser tidak akan bertahan lama.
         $conversations = Conversation::query()
             ->with(['user', 'department', 'pesanDetail'])
             ->withCount('messages')
+            ->when($cari !== '', function ($q) use ($cari) {
+                $kunci = '%' . mb_strtolower($cari) . '%';
+                $q->where(function ($w) use ($kunci) {
+                    $w->whereRaw('LOWER(title) LIKE ?', [$kunci])
+                        ->orWhereHas('user', fn ($u) => $u
+                            ->whereRaw('LOWER(name) LIKE ?', [$kunci])
+                            ->orWhereRaw('LOWER(email) LIKE ?', [$kunci]));
+                });
+            })
+            ->when($status !== '', fn ($q) => $q->where('status', $status))
+            ->when($depId !== '', fn ($q) => $q->where('department_id', $depId))
             ->orderByDesc('updated_at')
-            ->get();
+            ->paginate($perHalaman)
+            ->withQueryString();
 
         $ringkas = [
-            'total' => $conversations->count(),
-            'aktif' => $conversations->where('status', 'active')->count(),
-            'selesai' => $conversations->where('status', 'completed')->count(),
-            'pesan' => (int) $conversations->sum('messages_count'),
+            'total' => Conversation::count(),
+            'aktif' => Conversation::where('status', 'active')->count(),
+            'selesai' => Conversation::where('status', 'completed')->count(),
+            'pesan' => Message::count(),
         ];
 
         $departemen = Department::orderBy('name')->get(['id', 'name']);
 
-        return view('admin.conversations', compact('conversations', 'ringkas', 'departemen'));
+        return view('admin.conversations', compact(
+            'conversations', 'ringkas', 'departemen', 'cari', 'status', 'depId'
+        ));
     }
 
     public function pekerjaan()

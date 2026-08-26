@@ -44,7 +44,26 @@ class Conversation extends Model
 
     public function pesanTerakhirUser(): HasOne
     {
-        return $this->hasOne(Message::class)->where('sender_type', 'user')->latestOfMany();
+        // Syarat tambahan harus lewat closure ofMany(); `where()` sebelum
+        // latestOfMany() tidak ikut terbawa ke subquery agregatnya.
+        return $this->hasOne(Message::class)->ofMany(
+            ['id' => 'max'],
+            fn ($q) => $q->where('sender_type', 'user')
+        );
+    }
+
+    /**
+     * Jawaban user terakhir yang cukup panjang untuk jadi keterangan tugas.
+     * Ambangnya sengaja tinggi supaya jawaban singkat seperti "Iya" atau
+     * "Tidak, hanya ini saja" terlewati dan yang terpilih adalah deskripsi
+     * pekerjaannya.
+     */
+    public function pesanDetail(): HasOne
+    {
+        return $this->hasOne(Message::class)->ofMany(
+            ['id' => 'max'],
+            fn ($q) => $q->where('sender_type', 'user')->whereRaw('LENGTH(content) >= 40')
+        );
     }
 
     public function chatHistories(): HasMany
@@ -75,7 +94,7 @@ class Conversation extends Model
      */
     public function judulTugas(): string
     {
-        $pesan = trim((string) ($this->pesanTerakhirUser?->content));
+        $pesan = trim((string) ($this->pesanDetail?->content ?: $this->pesanTerakhirUser?->content));
 
         return $pesan === ''
             ? 'Belum ada detail tugas'

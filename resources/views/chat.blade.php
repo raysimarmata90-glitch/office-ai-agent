@@ -16,7 +16,7 @@ Pekerjaan Saya
       data-confirm
       data-confirm-judul="Hapus Percakapan"
       data-confirm-teks="Percakapan &quot;{{ $conversation->namaProyek() }}&quot; beserta seluruh pesannya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan."
-      data-confirm-ok="Hapus Percakapan"
+      data-confirm-ok="Iya, hapus percakapan"
       data-confirm-jenis="bahaya">
 @csrf @method('DELETE')
 <button type="submit" class="btn">
@@ -37,8 +37,12 @@ Hapus
 /* Pesan */
 .msg{display:flex;margin-bottom:22px}
 .msg.me{justify-content:flex-end}
-.msg.ai .bub{background:transparent;border:none;padding:0;font-size:15px;line-height:1.72;color:var(--ink);max-width:100%}
-.msg.me .bub{background:var(--primary-soft);color:var(--ink);border-radius:18px;border-bottom-right-radius:6px;padding:11px 16px;font-size:14.5px;line-height:1.65;max-width:min(560px,82%)}
+/* Batas lebar dipasang di flex item, bukan persentase di dalam kotak yang
+   lebarnya menyusut mengikuti isi — itu bikin teks pendek pecah per huruf. */
+.msg-in{max-width:100%;min-width:0}
+.msg.me .msg-in{max-width:min(560px,82%)}
+.msg.ai .bub{background:transparent;border:none;padding:0;font-size:15px;line-height:1.72;color:var(--ink)}
+.msg.me .bub{background:var(--primary-soft);color:var(--ink);border-radius:18px;border-bottom-right-radius:6px;padding:11px 16px;font-size:14.5px;line-height:1.65}
 .bub{white-space:pre-wrap;word-break:break-word}
 .bub-t{font-size:10.5px;margin-top:6px;color:var(--muted3)}
 .msg.me .bub-t{text-align:right}
@@ -47,7 +51,7 @@ Hapus
 .ai-av img{width:100%;height:100%;object-fit:contain;display:block}
 
 /* Pilihan cepat */
-.opts{display:grid;gap:7px;margin-bottom:12px}
+.opts{display:grid;gap:7px;margin-top:13px}
 .opt{display:flex;align-items:flex-start;gap:11px;width:100%;border:1px solid var(--line2);background:#fff;border-radius:12px;padding:11px 13px;text-align:left;cursor:pointer;font-size:13.5px;font-family:inherit;color:var(--ink)}
 .opt:hover{border-color:var(--primary);background:var(--primary-soft)}
 .opt-n{width:22px;height:22px;border-radius:7px;background:var(--line3);color:var(--muted);display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
@@ -72,12 +76,27 @@ Hapus
 .att button{border:none;background:transparent;cursor:pointer;color:var(--muted2);font-size:13px;line-height:1;padding:0}
 .chat-err{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--blok-fg);background:var(--blok-bg);border-radius:10px;padding:9px 12px;margin-bottom:9px}
 .typing{display:inline-flex;gap:4px;align-items:center}
-.typing i{width:6px;height:6px;border-radius:50%;background:var(--muted3);display:block;animation:bl 1.3s infinite}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--primary);display:block;animation:bl 1.3s infinite}
 .typing i:nth-child(2){animation-delay:.18s}
 .typing i:nth-child(3){animation-delay:.36s}
-@keyframes bl{0%,60%,100%{opacity:.28}30%{opacity:1}}
+@keyframes bl{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
 .done-note{text-align:center;background:var(--done-bg);color:var(--done-fg);border-radius:11px;padding:12px;font-size:13px;max-width:760px;margin:0 auto}
 .foot-note{text-align:center;font-size:11px;color:var(--muted3);margin:9px 0 4px}
+#composerBox[hidden]{display:none}
+.opts.bebas .opt:not(.batal){opacity:.5}
+.opt.batal{border-style:dashed;background:#fff;color:var(--muted)}
+.opt.batal:hover{border-color:var(--st-blok);background:var(--st-blok-bg);color:var(--st-blok)}
+.opt.batal:hover .opt-n{background:var(--st-blok);color:#fff}
+.selesai-box{text-align:center;background:#fff;border:1px solid var(--line2);border-radius:16px;padding:20px 18px;box-shadow:0 3px 16px rgba(30,33,48,.06)}
+.selesai-ico{width:46px;height:46px;border-radius:50%;background:var(--st-done-bg);color:var(--st-done);display:grid;place-items:center;margin:0 auto 11px;animation:pop .45s cubic-bezier(.2,1.4,.5,1) both}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.selesai-t{font-size:15px;font-weight:800;letter-spacing:-.01em}
+.selesai-s{font-size:12.5px;color:var(--muted2);margin-top:4px}
+.selesai-aksi{display:flex;gap:9px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.konfeti{position:fixed;inset:0;pointer-events:none;z-index:400;overflow:hidden}
+.konfeti i{position:absolute;top:-14px;width:8px;height:13px;border-radius:2px;display:block;animation:jatuh linear forwards}
+@keyframes jatuh{to{transform:translateY(105vh) rotate(760deg);opacity:.15}}
+@media(prefers-reduced-motion:reduce){.konfeti{display:none}.selesai-ico{animation:none}}
 @media(max-width:720px){.chat-col{padding:0 4px}.msg.ai .bub{font-size:14.5px}}
 </style>
 @endpush
@@ -94,12 +113,12 @@ Hapus
 <div class="chat-col" id="messageList">
 @if($conversation)
 @foreach($conversation->messages as $m)
-<div class="msg {{ $m->sender_type === 'user' ? 'me' : 'ai' }}">
-<div style="max-width:100%">
+<div class="msg {{ $m->sender_type === 'user' ? 'me' : 'ai' }}" @if($m->sender_type !== 'user') data-ai @endif>
+<div class="msg-in">
 @if($m->sender_type !== 'user')
 <div class="ai-head">
-<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></span>
-INAai Agent
+<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>
+INaAI Agent
 </div>
 @endif
 <div class="bub">{{ $m->content }}<div class="bub-t">{{ $m->created_at->format('H:i') }}</div></div>
@@ -109,11 +128,11 @@ INAai Agent
 @else
 {{-- Layar "Chat Baru": pertanyaan pembuka ditampilkan saja, belum disimpan.
      Percakapan baru dibuat setelah user mengirim jawaban pertama. --}}
-<div class="msg ai">
-<div style="max-width:100%">
+<div class="msg ai" data-ai>
+<div class="msg-in">
 <div class="ai-head">
-<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></span>
-INAai Agent
+<span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>
+INaAI Agent
 </div>
 <div class="bub">{{ \App\Http\Controllers\ChatController::PERTANYAAN_AWAL }}<div class="bub-t">{{ now()->format('H:i') }}</div></div>
 </div>
@@ -126,11 +145,11 @@ INAai Agent
 <div class="composer-zone">
 <div class="chat-col">
 <div class="chat-err" id="chatError" role="alert" style="display:none"></div>
-<div class="opts" id="quickOptions" style="display:none"></div>
+<div id="composerBox">
 <form id="messageForm">
 @csrf
 <div class="composer">
-<textarea id="messageInput" rows="1" placeholder="Tulis pesan untuk INAai Agent..."></textarea>
+<textarea id="messageInput" rows="1" placeholder="Tulis pesan untuk INaAI Agent..."></textarea>
 <div class="att-list" id="attList"></div>
 <div class="comp-bar">
 <button type="button" class="comp-btn" id="attachBtn" title="Tambah lampiran" aria-label="Tambah lampiran">
@@ -146,7 +165,8 @@ INAai Agent
 </div>
 </div>
 </form>
-<div class="foot-note">INAai Agent dapat membuat kesalahan. Periksa kembali informasi penting.</div>
+<div class="foot-note">INaAI Agent dapat membuat kesalahan. Periksa kembali informasi penting.</div>
+</div>
 </div>
 </div>
 @else
@@ -170,7 +190,7 @@ const messageList = document.getElementById('messageList');
 const messageForm = document.getElementById('messageForm');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
-const quickOptions = document.getElementById('quickOptions');
+const composerBox = document.getElementById('composerBox');
 const chatError = document.getElementById('chatError');
 const attachBtn = document.getElementById('attachBtn');
 const attachInput = document.getElementById('attachInput');
@@ -216,33 +236,77 @@ function conversationIsActive() {
 return {{ ($conversation?->isActive() ?? true) ? 'true' : 'false' }};
 }
 
+function tampilComposer(tampil) {
+if (!composerBox) return;
+composerBox.hidden = !tampil;
+if (tampil && messageInput) messageInput.focus();
+}
+
+function hapusOpsi() {
+document.querySelectorAll('.msgs .opts').forEach(function (el) { el.remove(); });
+}
+
 /**
- * Render pilihan cepat dari server. "Something else" dibuang karena kotak tulis
- * pada desain ini selalu tersedia di bawah pilihan.
+ * Render pilihan cepat dari server tepat di bawah pertanyaan AI terakhir,
+ * lalu sembunyikan kotak tulis. "Jawaban lain" adalah jalan keluarnya:
+ * server memang mengharapkan klien yang menyediakan opsi bebas ini.
  */
 function showOptions(options, questionType) {
-if (!quickOptions || !conversationIsActive()) return;
+hapusOpsi();
+
+if (!conversationIsActive()) { tampilComposer(false); return; }
 
 const daftar = (options || []).filter(function (o) {
 return String(o).trim() !== '' && String(o).trim().toLowerCase() !== 'something else';
 });
 
-if (daftar.length === 0) {
-quickOptions.innerHTML = '';
-quickOptions.style.display = 'none';
-if (messageInput) messageInput.focus();
-return;
-}
+if (daftar.length === 0) { tampilComposer(true); return; }
 
-quickOptions.dataset.questionType = questionType || '';
-quickOptions.innerHTML = daftar.map(function (o, i) {
+const pesanAi = document.querySelectorAll('.msgs [data-ai] .msg-in');
+const induk = pesanAi[pesanAi.length - 1];
+if (!induk) { tampilComposer(true); return; }
+
+const kotak = document.createElement('div');
+kotak.className = 'opts';
+kotak.dataset.questionType = questionType || '';
+kotak.innerHTML = daftar.map(function (o, i) {
 return '<button type="button" class="opt" data-value="' + escapeHtml(o) + '">' +
 '<span class="opt-n">' + (i + 1) + '</span><span>' + escapeHtml(o) + '</span></button>';
-}).join('');
-quickOptions.style.display = 'grid';
-quickOptions.style.opacity = '1';
-quickOptions.querySelectorAll('.opt').forEach(function (b) {
-b.addEventListener('click', function () { submitMessage(b.getAttribute('data-value')); });
+}).join('') +
+'<button type="button" class="opt other" data-lain>' +
+'<span class="opt-n">+</span><span>Jawaban lain</span></button>';
+induk.appendChild(kotak);
+
+tampilComposer(false);
+
+function batalkanPilihan() {
+kotak.classList.remove('bebas');
+var batal = kotak.querySelector('[data-batal]');
+if (batal) batal.remove();
+tampilComposer(false);
+scrollToBottom();
+}
+
+kotak.querySelectorAll('.opt').forEach(function (b) {
+b.addEventListener('click', function () {
+if (b.hasAttribute('data-lain')) {
+if (kotak.classList.contains('bebas')) return;
+// Pilihan tetap terlihat (diredupkan), kotak tulis dibuka, dan
+// disediakan jalan kembali lewat "Batalkan pilihan".
+kotak.classList.add('bebas');
+var batal = document.createElement('button');
+batal.type = 'button';
+batal.className = 'opt batal';
+batal.setAttribute('data-batal', '');
+batal.innerHTML = '<span class="opt-n">&times;</span><span>Batalkan pilihan</span>';
+batal.addEventListener('click', batalkanPilihan);
+kotak.appendChild(batal);
+tampilComposer(true);
+scrollToBottom();
+return;
+}
+submitMessage(b.getAttribute('data-value'));
+});
 });
 }
 
@@ -251,8 +315,9 @@ const d = document.createElement('div');
 d.className = 'msg ' + (isUser ? 'me' : 'ai');
 const now = new Date();
 const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-d.innerHTML = '<div style="max-width:100%">' +
-(isUser ? '' : '<div class="ai-head"><span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"></span>INAai Agent</div>') +
+if (!isUser) d.setAttribute('data-ai', '');
+d.innerHTML = '<div class="msg-in">' +
+(isUser ? '' : '<div class="ai-head"><span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>INaAI Agent</div>') +
 '<div class="bub">' + escapeHtml(content) + '<div class="bub-t">' + t + '</div></div></div>';
 messageList.appendChild(d);
 if (!isUser) showOptions(hasOptions ? (options || []) : [], questionType);
@@ -263,7 +328,7 @@ function showTyping() {
 const d = document.createElement('div');
 d.className = 'msg ai';
 d.id = 'typingRow';
-d.innerHTML = '<div><div class="bub"><span class="typing"><i></i><i></i><i></i></span></div></div>';
+d.innerHTML = '<div class="msg-in"><div class="bub"><span class="typing"><i></i><i></i><i></i></span></div></div>';
 messageList.appendChild(d);
 scrollToBottom();
 }
@@ -290,8 +355,7 @@ return;
 
 messageInput.disabled = true;
 sendButton.disabled = true;
-quickOptions.style.display = 'none';
-quickOptions.style.opacity = '1';
+hapusOpsi();
 addMessage(message, true);
 messageInput.value = '';
 autoGrow();
@@ -329,6 +393,7 @@ false,
 data.ai_response.options || [],
 data.ai_response.question_type || null
 );
+if (data.selesai) { rayakan(); return; }
 } else {
 tampilError(data.message || 'Terjadi kesalahan saat memproses permintaan Anda.');
 }
@@ -340,6 +405,46 @@ tampilError('Koneksi bermasalah. Silakan coba lagi.');
 messageInput.disabled = false;
 syncSendButton();
 messageInput.focus();
+}
+
+/**
+ * Sesi selesai: konfeti singkat, kotak tulis diganti tombol Chat Baru.
+ */
+function rayakan() {
+hapusOpsi();
+var zona = document.querySelector('.composer-zone .chat-col');
+if (zona) {
+zona.innerHTML =
+'<div class="selesai-box">' +
+'<div class="selesai-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg></div>' +
+'<div class="selesai-t">Catatan pekerjaan tersimpan</div>' +
+'<div class="selesai-s">Sesi ini sudah ditutup. Hasilnya bisa dilihat di Pekerjaan Saya.</div>' +
+'<div class="selesai-aksi">' +
+'<a class="btn" href="{{ route('pekerjaan.index') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/></svg>Pekerjaan Saya</a>' +
+'<a class="btn btn-primary" href="{{ route('chat.baru') }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>Chat Baru</a>' +
+'</div></div>';
+}
+konfeti();
+if (window.InaaiToast) window.InaaiToast.sukses('Catatan pekerjaan berhasil disimpan.', { judul: 'Sesi Selesai' });
+window.dispatchEvent(new Event('inaai:riwayat-usang'));
+scrollToBottom();
+}
+
+function konfeti() {
+var warna = ['#f55d14', '#1d4ed8', '#047857', '#7e22ce', '#be123c', '#b45309'];
+var lapis = document.createElement('div');
+lapis.className = 'konfeti';
+for (var i = 0; i < 70; i++) {
+var k = document.createElement('i');
+k.style.left = (Math.random() * 100) + '%';
+k.style.background = warna[i % warna.length];
+k.style.animationDelay = (Math.random() * 0.5) + 's';
+k.style.animationDuration = (2.4 + Math.random() * 1.6) + 's';
+k.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+lapis.appendChild(k);
+}
+document.body.appendChild(lapis);
+setTimeout(function () { lapis.remove(); }, 4600);
 }
 
 function autoGrow() {

@@ -19,7 +19,7 @@ export default function ConversationProgress({
     const topics = [
         { id: 1, name: 'Proyek', icon: '📋' },
         { id: 2, name: 'Objektif', icon: '🎯' },
-        { id: 3, name: 'Harapan', icon: '✨' },
+        { id: 3, name: 'Target', icon: '✨' },
         { id: 4, name: 'Task', icon: '✅' },
         { id: 5, name: 'Estimasi', icon: '⏱️' },
     ];

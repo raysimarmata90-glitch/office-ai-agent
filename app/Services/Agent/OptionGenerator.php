@@ -10,10 +10,24 @@ class OptionGenerator
 {
     /**
      * Generate options based on question type and context
+     * 
+     * CRITICAL PRIORITY LOGIC:
+     * 1. ALWAYS use department_code if available in context - this ensures BA gets BA options, AI gets AI options, etc.
+     * 2. NEVER let project name keywords (e.g., "BPJS", "Bank") override department-specific options
+     * 3. Domain detection from project name is ONLY used as fallback when department_code is null/missing
+     * 
+     * Examples:
+     * - BA user + "Projek Business Analyst BPJS" → BA options (Proposal, Requirements, etc.)
+     * - AI user + "Projek Keuangan Bank DKI" → AI options (Model Training, Feature Engineering, etc.)
+     * - Platform user + "Projek Healthcare BPJS" → Platform options (Infrastructure, CI/CD, etc.)
+     * 
+     * @param string $type The question type (objective, expectation, current_task, etc.)
+     * @param array $context Must contain 'department_code' for correct option generation
+     * @return array List of contextual options for the question
      */
     public function generateOptions(string $type, array $context = []): array
     {
-        // Get department code from context
+        // Get department code from context - this is the PRIMARY source of truth
         $departmentCode = $context['department_code'] ?? null;
         
         return match($type) {
@@ -91,7 +105,9 @@ class OptionGenerator
 
     private function objectiveOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures BA gets BA options, AI gets AI options, etc.
+        // Domain detection is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             return $this->getDepartmentSpecificObjectives($departmentCode);
         }
@@ -185,7 +201,9 @@ class OptionGenerator
 
     private function expectationOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures BA gets BA expectations, AI gets AI expectations, etc.
+        // Pattern matching is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             $objective = strtolower($context['objective'] ?? '');
             return $this->getDepartmentSpecificExpectations($departmentCode, $objective);
@@ -262,7 +280,9 @@ class OptionGenerator
 
     private function currentTaskOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures each department gets relevant task options based on their role
+        // Pattern matching is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             $objective = strtolower($context['objective'] ?? '');
             return $this->getDepartmentSpecificTasks($departmentCode, $objective);
@@ -401,7 +421,9 @@ class OptionGenerator
      */
     private function taskDetailOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures task details are relevant to the user's actual department role
+        // Pattern matching is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             $currentTask = strtolower($context['current_task'] ?? $context['user_input'] ?? '');
             return $this->getDepartmentSpecificTaskDetails($departmentCode, $currentTask);
@@ -526,7 +548,9 @@ class OptionGenerator
      */
     private function taskChallengeOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures challenges are relevant to the user's department context
+        // Pattern matching is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             $currentTask = strtolower($context['current_task'] ?? $context['user_input'] ?? '');
             return $this->getDepartmentSpecificChallenges($departmentCode, $currentTask);
@@ -583,7 +607,9 @@ class OptionGenerator
      */
     private function taskApproachOptions(array $context, ?string $departmentCode = null): array
     {
-        // ALWAYS prioritize department-specific options if department code exists
+        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
+        // This ensures approaches are relevant to the user's department methodology
+        // Pattern matching is ONLY used as fallback when no department code is available
         if ($departmentCode !== null) {
             $currentTask = strtolower($context['current_task'] ?? $context['user_input'] ?? '');
             return $this->getDepartmentSpecificApproaches($departmentCode, $currentTask);

@@ -456,8 +456,10 @@ table.tbl th .th-in{gap:6px}
 
 /* ===== Profil: field terkunci & ikon perangkat ===== */
 .fld-kunci{display:inline-flex;align-items:center;gap:4px;background:var(--line3);color:var(--muted2);border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:6px;text-transform:none;letter-spacing:0}
+.fld-hint{font-size:11.5px;color:var(--muted2);margin-top:5px;margin-bottom:-5px;line-height:1.5}
 /* Kotak date picker juga readonly, tapi tetap harus terlihat bisa diklik. */
 .fld input[readonly]:not(.i-dt-in),.fld input:disabled:not(.i-dt-in){background:var(--line3);color:var(--muted2);cursor:not-allowed}
+.fld select[readonly],.fld select:disabled{background:var(--line3);color:var(--muted2);cursor:not-allowed;pointer-events:none}
 /* Warna ikon mengikuti identitas resmi tiap platform. */
 .pf-ses-ico.apple,.pf-ses-ico.apple-mobile{background:#f1f2f5;color:#1d1d1f}
 .pf-ses-ico.windows{background:#e3f2fd;color:#0078d4}

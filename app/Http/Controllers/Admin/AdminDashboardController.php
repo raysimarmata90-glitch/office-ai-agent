@@ -522,4 +522,108 @@ class AdminDashboardController extends Controller
 
         return view('admin.conversation-detail', compact('conversation', 'pesan', 'tugas'));
     }
+
+    /**
+     * Get pending password reset requests count untuk badge notifikasi
+     */
+    public function getPendingPasswordRequestsCount()
+    {
+        return \App\Models\PasswordResetRequest::pending()->count();
+    }
+
+    /**
+     * Admin view password reset requests di halaman users
+     */
+    public function passwordRequests(Request $request)
+    {
+        // This will be shown as a modal or section in the users page
+        $requests = \App\Models\PasswordResetRequest::with(['user', 'handledBy'])
+            ->recent()
+            ->get();
+
+        $pendingCount = $requests->where('status', 'pending')->count();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'requests' => $requests->map(fn($req) => [
+                    'id' => $req->id,
+                    'user' => [
+                        'name' => $req->user->name,
+                        'email' => $req->user->email,
+                        'inisial' => $req->user->inisial(),
+                        'foto' => $req->user->fotoUrl(),
+                    ],
+                    'email' => $req->email,
+                    'reason' => $req->reason,
+                    'status' => $req->status,
+                    'created_at' => $req->created_at->diffForHumans(),
+                    'handled_by' => $req->handledBy ? $req->handledBy->name : null,
+                    'handled_at' => $req->handled_at?->diffForHumans(),
+                    'is_pending' => $req->isPending(),
+                ]),
+                'pending_count' => $pendingCount,
+            ]);
+        }
+
+        return view('admin.password-requests', compact('requests', 'pendingCount'));
+    }
+
+    /**
+     * Admin approve password reset request
+     */
+    public function approvePasswordRequest(Request $request, \App\Models\PasswordResetRequest $passwordResetRequest)
+    {
+        if (!$passwordResetRequest->isPending()) {
+            return response()->json(['message' => 'Request ini sudah diproses.'], 422);
+        }
+
+        $validated = $request->validate([
+            'new_password' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'new_password.min' => 'Password baru minimal 8 karakter.',
+            'new_password.confirmed' => 'Konfirmasi password tidak sama.',
+        ]);
+
+        // Update user password
+        $user = $passwordResetRequest->user;
+        $user->update(['password' => Hash::make($validated['new_password'])]);
+
+        // Logout all user sessions except current admin session
+        DB::table('sessions')
+            ->where('user_id', $user->id)
+            ->delete();
+
+        // Update request status
+        $passwordResetRequest->update([
+            'status' => 'approved',
+            'handled_by' => auth()->id(),
+            'handled_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Password ' . $user->name . ' berhasil direset. Semua sesi user telah dikeluarkan.',
+        ]);
+    }
+
+    /**
+     * Admin reject password reset request
+     */
+    public function rejectPasswordRequest(\App\Models\PasswordResetRequest $passwordResetRequest)
+    {
+        if (!$passwordResetRequest->isPending()) {
+            return response()->json(['message' => 'Request ini sudah diproses.'], 422);
+        }
+
+        $passwordResetRequest->update([
+            'status' => 'rejected',
+            'handled_by' => auth()->id(),
+            'handled_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'pesan' => 'Request reset password ditolak.',
+        ]);
+    }
 }

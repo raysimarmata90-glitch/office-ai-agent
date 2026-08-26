@@ -15,7 +15,11 @@ class RegisterController extends Controller
 {
     public function showRegistrationForm()
     {
-        $departments = Department::all();
+        // Only show specific departments for public registration
+        // Exclude ops-legal and other restricted departments
+        $departments = Department::whereIn('code', ['ai', 'platform', 'ba', 'td'])
+            ->orderBy('name')
+            ->get();
         return view('auth.register', compact('departments'));
     }
 

@@ -40,11 +40,20 @@ class LoginController extends Controller
 
     public function logout(Request $request)
     {
+        // Store intended redirect before clearing session
+        $redirectTo = route('login');
+        
+        // Perform logout
         Auth::logout();
 
+        // Invalidate and regenerate session
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        // Clear any cached data
+        $request->session()->flush();
+
+        // Force redirect to login page
+        return redirect($redirectTo)->with('status', 'Anda telah berhasil logout.');
     }
 }

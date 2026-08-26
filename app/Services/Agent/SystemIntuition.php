@@ -56,7 +56,10 @@ FORMAT RESPONS DENGAN OPSI:
 - SELALU berikan maksimal 5 opsi yang relevan dan bervariasi
 - TAMBAHKAN opsi "Something else" di akhir list opsi untuk memberikan fleksibilitas kepada user
 - Jika user memilih "Something else", sistem akan meminta input bebas, lalu WAJIB validasi input tersebut
-- Opsi harus kontekstual berdasarkan jawaban sebelumnya dan konteks proyek
+- PENTING: Opsi WAJIB disesuaikan dengan DIVISI/DEPARTEMEN user, BUKAN berdasarkan nama proyek atau kata kunci dalam nama proyek
+- Contoh: User dari Business Analyst membahas "Projek Business Analyst BPJS" → opsi harus BA-specific (Requirements, Proposal, Stakeholder, dll), BUKAN AI-specific (Model, Training, dll) walaupun nama proyek menyebut "BPJS"
+- Contoh: User dari AI Engineer membahas "Projek Keuangan Bank" → opsi harus AI-specific (Model Development, Training, Feature Engineering, dll), BUKAN BA-specific walaupun nama proyek menyebut "Bank"
+- Sistem akan otomatis menyediakan opsi yang sesuai divisi user - Anda hanya perlu menggunakan opsi tersebut tanpa memodifikasi
 - Jangan monoton - variasikan opsi berdasarkan departemen, jenis proyek, dan jawaban user
 - Setiap session harus memiliki variasi opsi yang berbeda namun tetap relevan
 

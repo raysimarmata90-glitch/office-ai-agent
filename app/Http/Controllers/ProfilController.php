@@ -103,24 +103,34 @@ class ProfilController extends Controller
         // Email adalah identitas login — tidak diubah lewat form ini.
         unset($validated['email']);
 
-        // Non-admin tidak boleh menaikkan dirinya ke Administrator atau C-level.
-        if (array_key_exists('role_id', $validated) && $validated['role_id'] !== null) {
-            $bolehId = collect($this->pilihanRole($user))->pluck('id')->all();
-            if (! in_array((int) $validated['role_id'], $bolehId, true)) {
-                throw ValidationException::withMessages([
-                    'role_id' => 'Anda tidak berhak memilih role tersebut.',
-                ]);
-            }
-        } else {
+        // SECURITY: User biasa tidak boleh mengubah department dan role mereka sendiri
+        // Hanya admin yang bisa mengubah department/role user lain (lewat admin panel)
+        if (!$user->isAdmin()) {
+            // Non-admin NEVER allowed to change their own department or role
             unset($validated['role_id']);
-        }
-
-        if (! array_key_exists('department_id', $validated) || $validated['department_id'] === null) {
             unset($validated['department_id']);
-        } elseif (! self::pilihanDepartemen($user)->pluck('id')->contains((int) $validated['department_id'])) {
-            throw ValidationException::withMessages([
-                'department_id' => 'Anda tidak berhak memilih departemen tersebut.',
-            ]);
+        } else {
+            // SECURITY: Admin tidak boleh mengubah rolenya sendiri untuk mencegah hilangnya akses admin
+            if (array_key_exists('role_id', $validated)) {
+                // Check if trying to change role
+                if ($validated['role_id'] !== null && (int)$validated['role_id'] !== $user->role_id) {
+                    throw ValidationException::withMessages([
+                        'role_id' => 'Admin tidak dapat mengubah rolenya sendiri untuk menjaga keamanan sistem.',
+                    ]);
+                }
+                // Remove from update to prevent any modification
+                unset($validated['role_id']);
+            }
+
+            // Admin also cannot change their own department (could affect role permissions)
+            if (array_key_exists('department_id', $validated)) {
+                if ($validated['department_id'] !== null && (int)$validated['department_id'] !== $user->department_id) {
+                    throw ValidationException::withMessages([
+                        'department_id' => 'Admin tidak dapat mengubah departemennya sendiri untuk menjaga keamanan sistem.',
+                    ]);
+                }
+                unset($validated['department_id']);
+            }
         }
 
         if ($request->hasFile('foto')) {

@@ -14,6 +14,11 @@ Card
 Table
 </a>
 </div>
+<button class="btn" type="button" id="btnPasswordRequests" style="position:relative">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+Reset Password
+<span id="passwordRequestsBadge" class="badge-notif" style="display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:10px;padding:2px 6px;font-size:10px;font-weight:700"></span>
+</button>
 <button class="btn btn-primary" type="button" data-open-assign>
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>
 Assign Tugas
@@ -185,6 +190,57 @@ Hapus
 @endif
 
 @include('partials.modal-assign')
+
+{{-- Modal Password Reset Requests --}}
+<x-modal id="passwordRequestsModal" lebar="780px" judul="Permintaan Reset Password"
+         desc="Kelola permintaan reset password dari pengguna"
+         :ikon="'<svg width=\'15\' height=\'15\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><rect width=\'18\' height=\'11\' x=\'3\' y=\'11\' rx=\'2\' ry=\'2\'/><path d=\'M7 11V7a5 5 0 0 1 10 0v4\'/></svg>'">
+    <div class="modal-body" style="max-height:600px;overflow-y:auto">
+        <div id="passwordRequestsList">
+            <div class="empty">Memuat permintaan...</div>
+        </div>
+    </div>
+    <div class="modal-foot">
+        <button type="button" class="btn" data-modal-close>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            Tutup
+        </button>
+    </div>
+</x-modal>
+
+{{-- Modal untuk approve reset password (input password baru) --}}
+<x-modal id="approvePasswordModal" lebar="520px" judul="Reset Password"
+         desc="Masukkan password baru untuk pengguna"
+         :ikon="'<svg width=\'15\' height=\'15\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><rect width=\'18\' height=\'11\' x=\'3\' y=\'11\' rx=\'2\' ry=\'2\'/><path d=\'M7 11V7a5 5 0 0 1 10 0v4\'/></svg>'">
+    <form id="approvePasswordForm" class="modal-form">
+        @csrf
+        <div class="modal-body">
+            <input type="hidden" id="approveRequestId">
+            <div class="card-desc" style="margin-bottom:16px">
+                Reset password untuk: <strong id="approveUserName"></strong>
+            </div>
+            <div class="fld">
+                <label>Password Baru</label>
+                <input type="password" name="new_password" id="newPassword" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="fld">
+                <label>Konfirmasi Password</label>
+                <input type="password" name="new_password_confirmation" id="newPasswordConfirmation" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="card-desc">Minimal 8 karakter. Semua sesi user akan dikeluarkan setelah password direset.</div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" class="btn" data-modal-close>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                Batal
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Reset Password
+            </button>
+        </div>
+    </form>
+</x-modal>
 
 {{-- Modal ubah pengguna: struktur tab dan isinya mengikuti modal Profil Saya --}}
 <x-modal id="userModal" lebar="620px" judul="Ubah Pengguna"
@@ -484,6 +540,177 @@ setTimeout(()=>location.reload(),650);
 
 document.querySelectorAll('[data-ubah-user]').forEach(b=>b.addEventListener('click',()=>buka(b.dataset.ubahUser)));
 document.querySelectorAll('[data-hapus-user]').forEach(b=>b.addEventListener('click',()=>hapus(b.dataset.hapusUser,b.dataset.nama||'')));
+
+/* ===== Password Reset Requests ===== */
+(function(){
+const btnRequests=document.getElementById('btnPasswordRequests');
+const badge=document.getElementById('passwordRequestsBadge');
+const modalRequests=document.getElementById('passwordRequestsModal');
+const modalApprove=document.getElementById('approvePasswordModal');
+const listContainer=document.getElementById('passwordRequestsList');
+const approveForm=document.getElementById('approvePasswordForm');
+
+// Load badge count on page load
+async function loadBadgeCount(){
+try{
+const r=await fetch('/admin/password-requests',{headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+if(!r.ok)return;
+const d=await r.json();
+if(d.pending_count>0){
+badge.textContent=d.pending_count;
+badge.style.display='';
+}else{
+badge.style.display='none';
+}
+}catch(e){console.error('Error loading badge:',e)}
+}
+
+// Load requests list
+async function loadRequests(){
+listContainer.innerHTML='<div class="empty">Memuat permintaan...</div>';
+try{
+const r=await fetch('/admin/password-requests',{headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+if(!r.ok)throw new Error('Failed to load');
+const d=await r.json();
+if(!d.requests||d.requests.length===0){
+listContainer.innerHTML='<div class="empty">Tidak ada permintaan reset password.</div>';
+return;
+}
+renderRequests(d.requests);
+}catch(e){
+listContainer.innerHTML='<div class="empty">Gagal memuat data: '+esc(e.message)+'</div>';
+}
+}
+
+function renderRequests(requests){
+let html='';
+requests.forEach(function(req){
+const statusBadge=req.status==='pending'?'<span class="badge b-todo">Pending</span>':
+req.status==='approved'?'<span class="badge b-done">Disetujui</span>':
+'<span class="badge b-blok">Ditolak</span>';
+html+=`
+<div class="ucard" style="margin-bottom:12px">
+<div class="ucard-h">
+<span class="avatar" style="width:40px;height:40px;font-size:14px;border-radius:11px">
+${req.user.foto?'<img src="'+esc(req.user.foto)+'" alt="">':esc(req.user.inisial)}
+</span>
+<div style="min-width:0;flex:1">
+<div class="ucard-n">${esc(req.user.name)}</div>
+<div class="ucard-e">${esc(req.user.email)}</div>
+</div>
+${statusBadge}
+</div>
+${req.reason?'<div class="card-desc" style="margin-bottom:12px">Alasan: '+esc(req.reason)+'</div>':''}
+<div class="ucard-s">
+<span>Diminta: ${esc(req.created_at)}</span>
+${req.handled_by?'<span>Diproses oleh: '+esc(req.handled_by)+'</span>':''}
+</div>
+${req.is_pending?`
+<div class="ucard-f" style="margin-top:12px">
+<button type="button" class="btn btn-sm btn-primary" data-approve-request="${req.id}" data-user-name="${esc(req.user.name)}">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+Setujui
+</button>
+<button type="button" class="btn btn-sm" data-reject-request="${req.id}">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+Tolak
+</button>
+</div>
+`:''}
+</div>
+`;
+});
+listContainer.innerHTML=html;
+
+// Attach event handlers
+listContainer.querySelectorAll('[data-approve-request]').forEach(btn=>{
+btn.addEventListener('click',()=>showApproveModal(btn.dataset.approveRequest,btn.dataset.userName));
+});
+listContainer.querySelectorAll('[data-reject-request]').forEach(btn=>{
+btn.addEventListener('click',()=>rejectRequest(btn.dataset.rejectRequest));
+});
+}
+
+function showApproveModal(requestId,userName){
+document.getElementById('approveRequestId').value=requestId;
+document.getElementById('approveUserName').textContent=userName;
+approveForm.reset();
+document.getElementById('newPassword').value='';
+document.getElementById('newPasswordConfirmation').value='';
+modalApprove.classList.add('open');
+}
+
+approveForm.addEventListener('submit',async function(e){
+e.preventDefault();
+const requestId=document.getElementById('approveRequestId').value;
+const fd=new FormData(approveForm);
+try{
+const r=await fetch('/admin/password-requests/'+requestId+'/approve',{
+method:'POST',
+body:fd,
+headers:{'X-CSRF-TOKEN':token,'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}
+});
+const d=await r.json();
+if(!r.ok){
+let pesan=d.message||'Gagal mereset password.';
+if(d.errors)pesan=Object.values(d.errors).flat().join(' ');
+window.InaaiToast&&window.InaaiToast.galat(pesan);
+return;
+}
+window.InaaiToast&&window.InaaiToast.sukses(d.pesan);
+modalApprove.classList.remove('open');
+loadRequests();
+loadBadgeCount();
+}catch(e){
+window.InaaiToast&&window.InaaiToast.galat('Koneksi bermasalah: '+e.message);
+}
+});
+
+async function rejectRequest(requestId){
+const lanjut=window.InaaiDialog?await window.InaaiDialog.konfirmasi({
+judul:'Tolak Permintaan',
+teks:'Permintaan reset password ini akan ditolak.',
+ok:'Iya, tolak permintaan',jenis:'bahaya'
+}):confirm('Tolak permintaan ini?');
+if(!lanjut)return;
+try{
+const r=await fetch('/admin/password-requests/'+requestId+'/reject',{
+method:'POST',
+headers:{'X-CSRF-TOKEN':token,'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}
+});
+const d=await r.json();
+if(!r.ok){
+window.InaaiToast&&window.InaaiToast.galat(d.message||'Gagal menolak.');
+return;
+}
+window.InaaiToast&&window.InaaiToast.sukses(d.pesan);
+loadRequests();
+loadBadgeCount();
+}catch(e){
+window.InaaiToast&&window.InaaiToast.galat('Koneksi bermasalah: '+e.message);
+}
+}
+
+btnRequests.addEventListener('click',function(){
+loadRequests();
+modalRequests.classList.add('open');
+document.body.style.overflow='hidden';
+});
+
+modalRequests.querySelectorAll('[data-modal-close]').forEach(b=>b.addEventListener('click',()=>{
+modalRequests.classList.remove('open');
+document.body.style.overflow='';
+}));
+
+modalApprove.querySelectorAll('[data-modal-close]').forEach(b=>b.addEventListener('click',()=>{
+modalApprove.classList.remove('open');
+}));
+
+// Load badge count on page load
+loadBadgeCount();
+// Refresh badge every 30 seconds
+setInterval(loadBadgeCount,30000);
+})();
 })();
 </script>
 @endpush

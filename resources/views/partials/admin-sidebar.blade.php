@@ -51,8 +51,8 @@
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 Lihat Profil
 </button>
-<form method="POST" action="{{ route('logout') }}">@csrf
-<button type="submit" class="mi danger">
+<form method="POST" action="{{ route('logout') }}" id="logoutForm">@csrf
+<button type="submit" class="mi danger" onclick="return confirmLogout(event)">
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
 Keluar
 </button>
@@ -88,5 +88,19 @@ const ub=document.getElementById('ufBtn'),um=document.getElementById('ufMenu');
 ub.addEventListener('click',function(e){e.stopPropagation();um.classList.toggle('open')});
 document.addEventListener('click',function(){um.classList.remove('open')});
 um.addEventListener('click',function(e){e.stopPropagation()});
+
+// Logout handler - ensure form submission works reliably
+window.confirmLogout = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const form = document.getElementById('logoutForm');
+    if (form) {
+        // Close dropdown menu
+        if (um) um.classList.remove('open');
+        // Submit form
+        form.submit();
+    }
+    return false;
+};
 })();
 </script>

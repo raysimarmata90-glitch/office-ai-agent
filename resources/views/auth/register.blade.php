@@ -125,7 +125,7 @@
                         <button type="button" data-lihat-sandi="password" tabindex="-1"
                             class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
                             title="Tampilkan password" aria-label="Tampilkan password" aria-pressed="false">
-                            <i class="fas fa-eye"></i>
+                            <i class="fas fa-eye-slash"></i>
                         </button>
                     </div>
                 </div>
@@ -145,7 +145,7 @@
                         <button type="button" data-lihat-sandi="password_confirmation" tabindex="-1"
                             class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
                             title="Tampilkan password" aria-label="Tampilkan password" aria-pressed="false">
-                            <i class="fas fa-eye"></i>
+                            <i class="fas fa-eye-slash"></i>
                         </button>
                     </div>
                 </div>
@@ -185,7 +185,8 @@
             if (!input) return;
             var lihat = input.type === 'password';
             input.type = lihat ? 'text' : 'password';
-            b.querySelector('i').className = lihat ? 'fas fa-eye-slash' : 'fas fa-eye';
+            // Icon: tersembunyi = eye-slash, terlihat = eye
+            b.querySelector('i').className = lihat ? 'fas fa-eye' : 'fas fa-eye-slash';
             b.title = lihat ? 'Sembunyikan password' : 'Tampilkan password';
             b.setAttribute('aria-label', b.title);
             b.setAttribute('aria-pressed', lihat ? 'true' : 'false');

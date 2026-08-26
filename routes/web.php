@@ -28,6 +28,10 @@ Route::middleware('guest')->group(function () {
 
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [LoginController::class, 'login']);
+    
+    // Forgot Password Routes
+    Route::get('/forgot-password', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
+    Route::post('/forgot-password', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email');
 });
 
 Route::middleware('auth')->group(function () {
@@ -81,6 +85,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/conversations/{conversation}', [AdminDashboardController::class, 'conversationDetail'])->name('conversation.detail');
     Route::get('/laporan', [AdminDashboardController::class, 'laporan'])->name('laporan');
     Route::get('/laporan/ekspor', [AdminDashboardController::class, 'ekspor'])->name('laporan.ekspor');
+
+    // Password Reset Requests
+    Route::get('/password-requests', [AdminDashboardController::class, 'passwordRequests'])->name('password-requests');
+    Route::post('/password-requests/{request}/approve', [AdminDashboardController::class, 'approvePasswordRequest'])->name('password-requests.approve');
+    Route::post('/password-requests/{request}/reject', [AdminDashboardController::class, 'rejectPasswordRequest'])->name('password-requests.reject');
 
     // Proyek
     Route::get('/proyek', [ProjectAdminController::class, 'index'])->name('proyek.index');

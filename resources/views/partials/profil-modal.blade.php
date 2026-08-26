@@ -56,25 +56,37 @@ Hapus Foto
 <input type="text" id="pfInEmail" readonly disabled tabindex="-1" aria-readonly="true">
 </div>
 </div>
+@if(!$akuProfil->isAdmin())
+{{-- User biasa: tampilkan Departemen (locked) dan Role (locked) --}}
 <div class="row2">
-{{-- Departemen dipilih lebih dulu; daftar role menyesuaikan departemennya. --}}
-<div class="fld"><label>Departemen</label>
-<select name="department_id" id="pfInDept" data-select data-placeholder="Pilih departemen">
-@foreach($depProfil as $d)
-<option value="{{ $d->id }}" @selected($akuProfil->department_id === $d->id)>{{ $d->name }}</option>
-@endforeach
-</select>
+<div class="fld"><label>Departemen <span class="fld-kunci">terkunci</span></label>
+<input type="text" value="{{ $akuProfil->department?->name ?? '-' }}" readonly disabled tabindex="-1" aria-readonly="true">
+<input type="hidden" name="department_id" value="{{ $akuProfil->department_id }}">
+<p class="fld-hint">Departemen Anda ditetapkan oleh administrator dan tidak dapat diubah sendiri.</p>
 </div>
-<div class="fld"><label>Role</label>
-{{-- Administrator & jabatan C-level tidak muncul untuk non-admin. --}}
-<select name="role_id" id="pfInRole" data-select data-placeholder="Pilih role">
+<div class="fld"><label>Role <span class="fld-kunci">terkunci</span></label>
+<input type="text" value="{{ $akuProfil->namaRole() }}" readonly disabled tabindex="-1" aria-readonly="true">
+<input type="hidden" name="role_id" value="{{ $akuProfil->role_id }}">
+<p class="fld-hint">Role Anda ditetapkan oleh administrator dan tidak dapat diubah sendiri.</p>
+</div>
+</div>
+<div class="fld"><label>Telepon</label><input type="text" name="phone" id="pfInPhone" placeholder="08xxxxxxxxxx"></div>
+@else
+{{-- Admin: Telepon (kiri) + Role (kanan), lalu Bio full width --}}
+<div class="row2">
+<div class="fld"><label>Telepon</label><input type="text" name="phone" id="pfInPhone" placeholder="08xxxxxxxxxx"></div>
+<div class="fld"><label>Role <span class="fld-kunci">terkunci</span></label>
+<select name="role_id" id="pfInRole" data-select data-placeholder="Pilih role" 
+        disabled readonly tabindex="-1" aria-readonly="true">
 @foreach($roleProfil as $r)
 <option value="{{ $r->id }}" data-dep="{{ $r->department_id ?? '' }}" @selected($akuProfil->role_id === $r->id)>{{ $r->display_name ?: $r->name }}</option>
 @endforeach
 </select>
+<input type="hidden" name="role_id" value="{{ $akuProfil->role_id }}">
+<p class="fld-hint">Admin tidak dapat mengubah rolenya sendiri untuk menjaga keamanan sistem.</p>
 </div>
 </div>
-<div class="fld"><label>Telepon</label><input type="text" name="phone" id="pfInPhone" placeholder="08xxxxxxxxxx"></div>
+@endif
 <div class="fld"><label>Bio</label><textarea name="bio" id="pfInBio" rows="3" placeholder="Ceritakan singkat tentang Anda (opsional)"></textarea></div>
 </div>
 <div class="modal-foot">

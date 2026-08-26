@@ -18,6 +18,36 @@ class TaskEvidence extends Model
         'ukuran',
     ];
 
+    /**
+     * Simpan berkas unggahan sebagai evidence sebuah tugas.
+     * Dipakai form tugas milik user maupun form assign/ubah milik admin.
+     *
+     * @param  iterable<\Illuminate\Http\UploadedFile|null>  $berkas
+     * @return int jumlah berkas yang tersimpan
+     */
+    public static function simpanBerkas(Task $task, $berkas, int $olehId): int
+    {
+        $n = 0;
+
+        foreach ((array) $berkas as $file) {
+            if (! $file || ! $file->isValid()) {
+                continue;
+            }
+
+            self::create([
+                'task_id' => $task->id,
+                'uploaded_by' => $olehId,
+                'nama_file' => $file->getClientOriginalName(),
+                'path' => $file->store('evidence/' . $task->id, 'public'),
+                'mime' => $file->getClientMimeType(),
+                'ukuran' => $file->getSize(),
+            ]);
+            $n++;
+        }
+
+        return $n;
+    }
+
     public function task(): BelongsTo
     {
         return $this->belongsTo(Task::class);

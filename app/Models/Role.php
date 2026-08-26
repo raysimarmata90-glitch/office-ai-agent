@@ -9,9 +9,15 @@ class Role extends Model
 {
     protected $fillable = [
         'name',
+        'department_id',
         'display_name',
         'description',
     ];
+
+    public function department(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
 
     public function users(): HasMany
     {

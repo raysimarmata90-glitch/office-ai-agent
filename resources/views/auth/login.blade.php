@@ -32,6 +32,8 @@
     <div class="w-full max-w-md">
         <!-- Logo Section -->
         <div class="text-center mb-8">
+            <img src="{{ asset('img/logo-inaai.webp') }}" alt="INAai"
+                 class="h-16 w-auto mx-auto mb-4 select-none" draggable="false">
             <h1 class="text-3xl font-bold text-gray-900 mb-2">Office AI Agent</h1>
             <p class="text-gray-600">Masuk ke akun Anda untuk melanjutkan</p>
         </div>
@@ -89,8 +91,13 @@
                             <i class="fas fa-lock text-gray-400"></i>
                         </div>
                         <input type="password" id="password" name="password" required
-                            class="block w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                            class="block w-full pl-10 pr-11 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
                             placeholder="Masukkan password Anda">
+                        <button type="button" data-lihat-sandi="password" tabindex="-1"
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                            title="Tampilkan password" aria-label="Tampilkan password" aria-pressed="false">
+                            <i class="fas fa-eye"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -130,10 +137,27 @@
         <!-- Footer -->
         <div class="mt-8 text-center">
             <p class="text-sm text-gray-500">
-                © 2026 Office AI Agent. All rights reserved.
+                © 2026 INaAI - Office AI Agent. All rights reserved.
             </p>
         </div>
     </div>
+
+    <script>
+    // Toggle lihat/sembunyi password.
+    document.querySelectorAll('[data-lihat-sandi]').forEach(function (b) {
+        b.addEventListener('click', function () {
+            var input = document.getElementById(b.dataset.lihatSandi);
+            if (!input) return;
+            var lihat = input.type === 'password';
+            input.type = lihat ? 'text' : 'password';
+            b.querySelector('i').className = lihat ? 'fas fa-eye-slash' : 'fas fa-eye';
+            b.title = lihat ? 'Sembunyikan password' : 'Tampilkan password';
+            b.setAttribute('aria-label', b.title);
+            b.setAttribute('aria-pressed', lihat ? 'true' : 'false');
+            input.focus();
+        });
+    });
+    </script>
 </body>
 
 </html>

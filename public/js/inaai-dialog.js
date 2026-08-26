@@ -84,9 +84,15 @@ elIko.className = 'dlg-ico ' + jenis;
 elIko.innerHTML = IKON[ikon] || IKON.info;
 elJudul.textContent = opsi.judul || 'Konfirmasi';
 elTeks.textContent = opsi.teks || '';
-elTeks.style.display = opsi.teks ? '' : 'none';
-elOk.textContent = opsi.ok || 'Konfirmasi';
-elBatal.textContent = opsi.batal || 'Batal';
+elTeks.closest('.dlg-body').style.display = opsi.teks ? '' : 'none';
+var IKO_BATAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+var IKO_OK = jenis === 'bahaya'
+? IKON.hapus.replace('width="19" height="19"', 'width="14" height="14"')
+: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+elOk.innerHTML = IKO_OK + '<span></span>';
+elOk.querySelector('span').textContent = opsi.ok || 'Konfirmasi';
+elBatal.innerHTML = IKO_BATAL + '<span></span>';
+elBatal.querySelector('span').textContent = opsi.batal || 'Batal';
 elOk.className = 'btn ' + (jenis === 'bahaya' ? 'btn-danger' : 'btn-primary');
 
 akar.classList.add('open');

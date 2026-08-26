@@ -49,14 +49,51 @@ class Task extends Model
         ];
     }
 
+    /**
+     * Urutan status untuk bar komposisi dan legendanya: yang sudah selesai
+     * ditaruh paling depan, lalu mundur sampai yang belum dikerjakan.
+     */
+    public static function daftarStatusSelesaiDulu(): array
+    {
+        return array_reverse(self::daftarStatus(), true);
+    }
+
+    /**
+     * Palet status: lima hue yang berjauhan (netral, biru, ungu, merah mawar, hijau)
+     * supaya titik status di kanban, timeline, dan badge tetap mudah dibedakan.
+     * Sengaja menghindari oranye agar tidak tertukar dengan warna merek.
+     */
     public static function warnaStatus(string $status): array
     {
         return match ($status) {
-            self::STATUS_DONE => ['bg' => '#dcefe6', 'text' => '#1f7a52'],
-            self::STATUS_IN_PROGRESS => ['bg' => '#fdeadb', 'text' => '#a05a1c'],
-            self::STATUS_REVIEW => ['bg' => '#dde9fd', 'text' => '#2c5cc5'],
-            self::STATUS_BLOCKED => ['bg' => '#fde3e1', 'text' => '#b23c35'],
-            default => ['bg' => '#eef0f6', 'text' => '#5b6172'],
+            self::STATUS_DONE => ['bg' => '#d6f0e5', 'text' => '#047857'],
+            self::STATUS_IN_PROGRESS => ['bg' => '#dce7fd', 'text' => '#1d4ed8'],
+            self::STATUS_REVIEW => ['bg' => '#f1e3fd', 'text' => '#7e22ce'],
+            self::STATUS_BLOCKED => ['bg' => '#fde3ea', 'text' => '#be123c'],
+            default => ['bg' => '#e8edf4', 'text' => '#475569'],
+        };
+    }
+
+    /** Prioritas beserta warna titiknya, dipakai pilihan pada form tugas. */
+    public static function daftarPrioritas(): array
+    {
+        return [
+            'Tinggi' => self::warnaPrioritas('Tinggi')['text'],
+            'Sedang' => self::warnaPrioritas('Sedang')['text'],
+            'Rendah' => self::warnaPrioritas('Rendah')['text'],
+        ];
+    }
+
+    /**
+     * Warna badge prioritas — dibedakan dari palet status supaya keduanya
+     * bisa berdampingan pada satu kartu kanban tanpa saling tertukar.
+     */
+    public static function warnaPrioritas(?string $prioritas): array
+    {
+        return match ($prioritas) {
+            'Tinggi' => ['bg' => '#ffe4e6', 'text' => '#9f1239'],
+            'Rendah' => ['bg' => '#dce7fd', 'text' => '#1d4ed8'],
+            default => ['bg' => '#fef3c7', 'text' => '#92400e'],
         };
     }
 

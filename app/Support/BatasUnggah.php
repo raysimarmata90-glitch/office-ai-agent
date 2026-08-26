@@ -8,7 +8,7 @@ class BatasUnggah
     public const TARGET_KB = 10240;
 
     /** Ekstensi evidence yang diterima. */
-    public const EKSTENSI = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'webp'];
+    public const EKSTENSI = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'webp', 'html', 'md'];
 
     /**
      * Batas ukuran per file (KB) — diambil dari nilai terkecil antara

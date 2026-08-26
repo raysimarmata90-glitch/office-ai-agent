@@ -11,9 +11,14 @@
     var table = root.querySelector('table.tbl');
     if (!table) return;
     var tbody = table.querySelector('tbody');
-    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row]'));
+    var semuaRow = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row]'));
+    // Baris yang disaring dari luar ditandai data-filter-off, lalu dilewati di sini.
+    var rows = semuaRow.slice();
     var empty = root.querySelector('[data-empty]');
     var state = { col: null, dir: 1, page: 1, size: 10 };
+
+    // Dipakai penyaring di luar komponen untuk menggambar ulang isi tabel.
+    root.inaaiTable = { segarkan: function () { state.page = 1; render(); } };
 
     var pager = root.querySelector('[data-pager]');
     var sizeSel = pager && pager.querySelector('[data-size]');
@@ -28,6 +33,8 @@
     }
 
     function render() {
+      rows = semuaRow.filter(function (r) { return r.dataset.filterOff !== '1'; });
+      semuaRow.forEach(function (r) { if (r.dataset.filterOff === '1') r.style.display = 'none'; });
       var sorted = rows.slice();
       if (state.col !== null) {
         sorted.sort(function (a, b) {
@@ -43,6 +50,7 @@
       var end = start + state.size;
 
       rows.forEach(function (r) { r.style.display = 'none'; });
+
       sorted.forEach(function (r, i) {
         var no = r.querySelector('[data-no]');
         if (no) no.textContent = i + 1;

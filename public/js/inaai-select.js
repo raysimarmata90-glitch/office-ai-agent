@@ -111,17 +111,65 @@
       btn.focus();
     }
 
+    /** Ada induk yang memotong isinya (mis. badan modal yang bergulir)? */
+    function indukMemotong(el) {
+      for (var n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        var g = getComputedStyle(n);
+        if (/(auto|scroll|hidden)/.test(g.overflowY + g.overflowX)) return n;
+      }
+      return null;
+    }
+
+    /**
+     * Di dalam wadah yang bergulir, popup absolut akan terpotong. Karena itu
+     * popup dilepas ke koordinat layar (position:fixed) saat kasus itu terjadi.
+     */
+    function taruhPopup() {
+      var r = btn.getBoundingClientRect();
+      var keAtas = r.bottom + 268 > window.innerHeight && r.top > 288;
+      wrap.classList.toggle('up', keAtas);
+
+      if (!indukMemotong(wrap)) { pop.style.cssText = ''; return; }
+
+      pop.style.position = 'fixed';
+      // Lebar mengikuti isi (min selebar tombol), lalu dijepit agar tetap di layar.
+      pop.style.width = 'max-content';
+      pop.style.minWidth = r.width + 'px';
+      pop.style.maxWidth = Math.min(420, window.innerWidth - 24) + 'px';
+      pop.style.right = 'auto';
+      var lebar = pop.getBoundingClientRect().width;
+      pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - lebar - 8)) + 'px';
+      if (keAtas) {
+        pop.style.top = 'auto';
+        pop.style.bottom = (window.innerHeight - r.top + 5) + 'px';
+      } else {
+        pop.style.bottom = 'auto';
+        pop.style.top = (r.bottom + 5) + 'px';
+      }
+    }
+
     function buka() {
       if (select.disabled) return;
       document.querySelectorAll('.i-sel.open').forEach(function (o) { o.classList.remove('open', 'up'); });
       buildPop();
       wrap.classList.add('open');
-      var r = btn.getBoundingClientRect();
-      if (r.bottom + 260 > window.innerHeight && r.top > 280) wrap.classList.add('up');
+      taruhPopup();
       if (searchInput) searchInput.focus();
+      window.addEventListener('scroll', taruhPopup, true);
+      window.addEventListener('resize', taruhPopup);
     }
 
-    function tutup() { wrap.classList.remove('open', 'up'); }
+    /** Baca ulang <option> dan perbarui tampilannya (mis. setelah opsi disaring). */
+    select.inaaiSel = {
+      segarkan: function () { syncButton(); if (wrap.classList.contains('open')) buildPop(); }
+    };
+
+    function tutup() {
+      wrap.classList.remove('open', 'up');
+      pop.style.cssText = '';
+      window.removeEventListener('scroll', taruhPopup, true);
+      window.removeEventListener('resize', taruhPopup);
+    }
 
     function navKeys(e) {
       var items = list.querySelectorAll('.i-sel-opt');

@@ -26,6 +26,28 @@ class TaskMetrics
         ];
     }
 
+    /**
+     * Komposisi status satu kumpulan tugas: seluruh status dijumlahkan menjadi
+     * 100% dari total kumpulan itu sendiri — bukan total global — sehingga sisa
+     * abu-abu hanya muncul kalau memang belum ada tugas. Urutannya dimulai dari
+     * yang sudah selesai.
+     */
+    public static function segmen($items): array
+    {
+        $total = $items->count();
+
+        return collect(Task::daftarStatusSelesaiDulu())
+            ->map(fn ($label, $key) => [
+                'key' => $key,
+                'label' => $label,
+                'jumlah' => $items->where('status', $key)->count(),
+                'warna' => Task::titikStatus($key),
+                'w' => $total ? $items->where('status', $key)->count() / $total * 100 : 0,
+            ])
+            ->values()
+            ->all();
+    }
+
     public static function kanban(Collection $tasks): array
     {
         $kolom = [];

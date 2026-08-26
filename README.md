@@ -1,7 +1,7 @@
-# Office AI Agent — INAai Project
+# Office AI Agent —INaAI Project
 
 Aplikasi web internal untuk **manajemen proyek, tugas pegawai, dan asisten AI perkantoran**.
-Dibangun dengan Laravel 12 + Blade, dengan tampilan dashboard bergaya "INAai" (sidebar
+Dibangun dengan Laravel 12 + Blade, dengan tampilan dashboard bergaya "INaAI" (sidebar
 ringkas, kartu KPI, papan Kanban, dan timeline Gantt sederhana).
 
 Aplikasi ini punya dua sisi:
@@ -25,6 +25,7 @@ Aplikasi ini punya dua sisi:
 - [Daftar Rute](#daftar-rute)
 - [Perintah Harian](#perintah-harian)
 - [Alur Kerja Git](#alur-kerja-git)
+- [Konvensi Penulisan](#konvensi-penulisan)
 - [Troubleshooting](#troubleshooting)
 - [Deployment](#deployment)
 
@@ -53,11 +54,26 @@ Aplikasi ini punya dua sisi:
 - Kelola pengguna: pencarian, filter, dan aktif/nonaktifkan akun.
 
 ### Komponen UI Global
+
 - `data-select` pada `<select>` → dropdown pencarian bergaya select2 (dengan titik warna
   opsional lewat `data-color` pada `<option>`).
 - `data-upload` pada `<input type="file">` → card upload drag & drop lengkap dengan
-  daftar file, hapus per file, dan validasi ukuran/format di sisi browser.
-- Keduanya otomatis aktif di semua halaman yang memakai layout `user`/`admin`.
+  daftar file (ikon per jenis berkas, jenis + ukuran), hapus per file, dan validasi
+  ukuran/format di sisi browser.
+- `data-datepicker`, `data-timepicker`, `data-datetimepicker`, `data-daterange` pada
+  `<input>` → pemilih tanggal/jam berbahasa Indonesia. Input asli menjadi penampung
+  nilai mesin (`Y-m-d`, `H:i`, `Y-m-d H:i`), yang terlihat adalah kotak baca-saja
+  berformat lokal. Batas opsional: `data-min`, `data-max`, `data-step` (menit).
+- `data-timeline` pada sebuah card → timeline/gantt dengan filter rentang tampilan
+  (Hari Ini s/d 1 Tahun); datanya lewat `<script type="application/json" data-tl-data>`.
+- `data-confirm` pada `<form>`/`<a>`/`<button>` → popup dialog konfirmasi
+  (`data-confirm-judul`, `-teks`, `-ok`, `-jenis`), atau `InaaiDialog.konfirmasi({...})`
+  dari JavaScript.
+- Semuanya otomatis aktif di semua halaman yang memakai layout `user`/`admin`.
+
+Warna status tugas berasal dari satu sumber, `App\Models\Task::warnaStatus()`, dan
+dicerminkan sebagai variabel CSS `--st-*` supaya titik kanban, badge, bar timeline,
+dan grafik progres selalu memakai warna yang sama.
 
 ### Asisten AI
 
@@ -76,7 +92,7 @@ Aplikasi ini punya dua sisi:
 | PHP        | 8.2+                                                                       |
 | Framework  | Laravel 12                                                                 |
 | Tampilan   | Blade + CSS kustom (`resources/views/partials/inaai-style.blade.php`)    |
-| Database   | PostgreSQL 18.4 (image `local/postgres-postgis:18.4-postgis3`)              |
+| Database   | PostgreSQL 18.4 (image`local/postgres-postgis:18.4-postgis3`)            |
 | Build aset | Vite 7 + Tailwind 4 (opsional, hanya untuk halaman berbasis React/Inertia) |
 | Font       | Plus Jakarta Sans (Google Fonts)                                           |
 
@@ -335,6 +351,69 @@ git checkout main && git pull
 git checkout feature/<nama>
 git merge main            # atau: git rebase main
 ```
+
+---
+
+## Konvensi Penulisan
+
+### Pesan commit
+
+Memakai [Conventional Commits](https://www.conventionalcommits.org) dengan
+subjek berbahasa Indonesia:
+
+```
+tipe(cakupan): subjek
+
+Badan seperlunya, maksimal 3 baris.
+```
+
+| Tipe | Dipakai untuk |
+| --- | --- |
+| `feat` | Kemampuan baru yang terasa oleh pengguna |
+| `fix` | Perbaikan perilaku atau data yang salah |
+| `refactor` | Menata ulang kode tanpa mengubah perilaku |
+| `perf` | Perubahan yang tujuannya kecepatan |
+| `style` | Tampilan atau format, tanpa perubahan logika |
+| `docs` | Dokumentasi saja |
+| `build` | Infrastruktur, dependensi, konfigurasi lingkungan |
+| `chore` | Pekerjaan rumah tangga yang tidak masuk kategori lain |
+
+Aturannya:
+
+- Subjek maksimal **72 karakter** termasuk prefiks, huruf kecil setelah titik
+  dua, bentuk perintah (`tambah`, `perbaiki`, `pindah`), tanpa titik di akhir.
+- **Badan opsional, 0–3 baris**, dan hanya ditulis kalau alasannya tidak terbaca
+  dari subjek dan diff. Rincian panjang tempatnya di deskripsi pull request.
+- Cakupan (`admin`, `chat`, `ui`, `data`, …) boleh dilewati kalau perubahannya
+  memang menyentuh banyak area.
+- **Tanpa trailer atribusi** (`Co-Authored-By` dan sejenisnya).
+- Commit merge dibiarkan apa adanya — badannya justru tempat mencatat keputusan
+  resolusi konflik.
+
+Contoh:
+
+```
+feat(admin): sambungkan seluruh halaman admin ke data sebenarnya
+
+Halaman admin masih memakai angka contoh, jadi belum bisa dipakai
+memantau apa pun.
+```
+
+```
+fix(data): warna proyek jadi unik dan tanggal dibuat tidak di masa depan
+```
+
+### Kode
+
+- **Bahasa Indonesia** untuk nama method, variabel, dan komentar yang ditulis
+  sendiri (`simpanEvidence`, `daftarStatus`, `warnaAvatar`), mengikuti gaya yang
+  sudah ada di repo ini. Nama bawaan framework tetap seperti aslinya.
+- Komentar menjelaskan **kenapa**, bukan mengulang apa yang sudah jelas dari
+  kodenya.
+- Gaya kode PHP mengikuti Laravel Pint: `./vendor/bin/pint`.
+- Komponen antarmuka baru diletakkan di `public/js/inaai-*.js` dan gayanya di
+  `resources/views/partials/inaai-style.blade.php`, supaya satu perubahan
+  berlaku di semua halaman.
 
 ---
 

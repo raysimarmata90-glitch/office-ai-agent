@@ -66,12 +66,12 @@ class ContextEngine
             $milikSaya = DB::table('projects')
                 ->join('tasks', 'tasks.project_id', '=', 'projects.id')
                 ->where('tasks.user_id', $userId)
-                ->orderBy('projects.nama')
+                ->orderBy('projects.client_or_rd')
                 ->distinct()
-                ->pluck('projects.nama')
+                ->pluck('projects.client_or_rd')
                 ->all();
 
-            $semua = DB::table('projects')->orderBy('nama')->pluck('nama')->all();
+            $semua = DB::table('projects')->orderBy('client_or_rd')->pluck('client_or_rd')->all();
 
             return array_values(array_unique(array_merge($milikSaya, $semua)));
         } catch (\Exception $e) {
@@ -92,7 +92,7 @@ class ContextEngine
             return DB::table('tasks')
                 ->join('projects', 'projects.id', '=', 'tasks.project_id')
                 ->where('tasks.user_id', $userId)
-                ->where('projects.nama', $projectName)
+                ->where('projects.client_or_rd', $projectName)
                 ->where('tasks.status', '!=', 'done')
                 ->orderBy('tasks.judul')
                 ->pluck('tasks.judul')
@@ -101,7 +101,7 @@ class ContextEngine
             return [];
         }
     }
-    
+
     /**
      * Check if user is continuing a previous project
      */
@@ -110,11 +110,11 @@ class ContextEngine
         if (empty($conversationHistory)) {
             return false;
         }
-        
+
         // Check last AI message
         $lastExchange = end($conversationHistory);
         $lastAiMessage = $lastExchange['agent_response'] ?? '';
-        
+
         // If AI just showed project list, next user input is continuing a project
         return str_contains(strtolower($lastAiMessage), 'proyek-proyek anda sebelumnya') ||
                str_contains(strtolower($lastAiMessage), 'proyek sebelumnya');
@@ -302,9 +302,9 @@ class ContextEngine
         }
 
         // Limit previous conversations
-        if (isset($context['retrieved_context']['previous_conversations']) && 
+        if (isset($context['retrieved_context']['previous_conversations']) &&
             count($context['retrieved_context']['previous_conversations']) > 3) {
-            $context['retrieved_context']['previous_conversations'] = 
+            $context['retrieved_context']['previous_conversations'] =
                 array_slice($context['retrieved_context']['previous_conversations'], 0, 3);
         }
 
@@ -320,7 +320,7 @@ class ContextEngine
         $stopWords = ['apa', 'adalah', 'bagaimana', 'cara', 'untuk', 'yang', 'di', 'ke', 'dari'];
         $words = explode(' ', strtolower($query));
         $keywords = array_filter($words, fn($w) => !in_array($w, $stopWords) && strlen($w) > 3);
-        
+
         return implode(' ', array_slice($keywords, 0, 3));
     }
 }

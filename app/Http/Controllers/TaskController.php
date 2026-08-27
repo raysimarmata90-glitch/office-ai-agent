@@ -82,7 +82,7 @@ class TaskController extends Controller
         }
         $gradienStatus = $potongan ? implode(', ', $potongan) : 'var(--line3) 0deg 360deg';
 
-        $projects = Project::orderBy('nama')->get();
+        $projects = Project::orderBy('client_or_rd')->get();
         $rekan = User::where('is_active', true)->orderBy('name')->get();
 
         $maksUnggahMb = BatasUnggah::maksMb();

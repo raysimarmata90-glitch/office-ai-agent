@@ -19,12 +19,136 @@ class SystemIntuition
     /**
      * Get system prompt for specific department
      */
-    public function getSystemPrompt(string $departmentCode): string
+    public function getSystemPrompt(string $departmentCode, ?array $chatContext = null): string
     {
         $basePrompt = $this->getBasePrompt();
         $departmentSpecific = $this->departmentPrompts[$departmentCode] ?? '';
 
-        return $basePrompt . "\n\n" . $departmentSpecific;
+        // Add project tracking context if available
+        $projectTrackingContext = $this->getProjectTrackingContext($chatContext);
+
+        return $basePrompt . "\n\n" . $departmentSpecific . "\n\n" . $projectTrackingContext;
+    }
+
+    /**
+     * Get project tracking context from chat session
+     */
+    protected function getProjectTrackingContext(?array $chatContext): string
+    {
+        if (!$chatContext || !isset($chatContext['current_step'])) {
+            return '';
+        }
+
+        $step = $chatContext['current_step'];
+        $projectName = $chatContext['project_name'] ?? null;
+        $deliverableName = $chatContext['deliverable_name'] ?? null;
+        $category = $chatContext['deliverable_category'] ?? null;
+
+        $context = "\n=== PROJECT TRACKING CONTEXT ===\n";
+        $context .= "Current Step: {$step}\n";
+
+        if ($projectName) {
+            $context .= "Selected Project: {$projectName}\n";
+        }
+
+        if ($deliverableName) {
+            $context .= "Selected Deliverable: {$deliverableName}\n";
+        }
+
+        if ($category) {
+            $context .= "Deliverable Category: {$category}\n";
+        }
+
+        // Add step-specific guidance
+        $context .= $this->getStepGuidance($step, $chatContext);
+
+        return $context;
+    }
+
+    /**
+     * Get guidance for specific step
+     */
+    protected function getStepGuidance(string $step, array $chatContext): string
+    {
+        return match($step) {
+            'select_client' => <<<GUIDANCE
+
+STEP 1: SELECT CLIENT/R&D
+- User diminta memilih dari daftar Client atau R&D yang tersedia
+- Validasi bahwa pilihan user ada dalam daftar
+- Jangan terima input bebas, harus dari daftar yang diberikan
+- Setelah valid, simpan dan lanjut ke step berikutnya
+
+GUIDANCE,
+            'select_deliverable' => <<<GUIDANCE
+
+STEP 2: SELECT KEY DELIVERABLE
+- User diminta memilih Key Deliverable dari project yang dipilih
+- Deliverables dikategorikan: COMMERCIAL, TECH, EKSPANSI, LEGAL
+- Tampilkan kategori untuk memudahkan user memilih
+- Validasi bahwa pilihan ada dalam daftar deliverables project ini
+- Setelah valid, simpan deliverable dan kategorinya
+
+GUIDANCE,
+            'objective_as_is' => <<<GUIDANCE
+
+STEP 3: OBJECTIVE AS-IS
+- Tanyakan: "Apa objektif pada pekerjaan ini?"
+- Ini adalah input bebas, tidak ada pilihan
+- Minimal 10 karakter untuk memastikan jawaban meaningful
+- Fokus pada CURRENT STATE (as-is), bukan target atau harapan
+- Contoh jawaban yang baik:
+  * "Sedang mengembangkan model AI untuk prediksi churn"
+  * "Membuat dokumentasi requirements untuk fitur payment"
+  * "Melakukan testing integrasi API dengan sistem legacy"
+
+GUIDANCE,
+            'timeline_validation' => <<<GUIDANCE
+
+STEP 4: TIMELINE VALIDATION
+- Tanyakan: "Berapa lama estimasi waktu pengerjaan untuk task ini?"
+- User bisa jawab dalam format: "X hari", "X minggu", "X bulan"
+- Parse dan konversi ke hari untuk validasi
+- Jika format tidak jelas, minta klarifikasi
+- Simpan estimasi untuk tracking progress
+
+GUIDANCE,
+            'task_inquiry' => <<<GUIDANCE
+
+STEP 5: TASK INQUIRY
+- Tanyakan: "Apakah masih ada tugas lain yang ingin Anda tambahkan?"
+- Opsi: "Ya" atau "Tidak"
+- Jika "Ya": kembali ke step select_deliverable untuk task berikutnya
+- Jika "Tidak": lanjut ke percentage allocation
+- Ini untuk tracking multiple tasks dalam satu session
+
+GUIDANCE,
+            'percentage_allocation' => <<<GUIDANCE
+
+STEP 6: PERCENTAGE ALLOCATION
+- Tanyakan: "Berapa persen progress penyelesaian untuk [deliverable]?"
+- Input: angka 0-100
+- Validasi range 0-100
+- Update completion_percentage di database
+- Setelah ini, session selesai dan tampilkan summary
+
+GUIDANCE,
+            'completed' => <<<GUIDANCE
+
+SESSION COMPLETED
+- Tampilkan summary dari semua data yang dikumpulkan
+- Format summary:
+  * Client: [nama client]
+  * Project: [nama project]
+  * Deliverable: [nama deliverable] (Kategori: [CATEGORY])
+  * Objective: [apa yang dikerjakan]
+  * Estimasi: [X hari]
+  * Progress: [X%]
+- Session tidak bisa dilanjutkan, user harus mulai session baru
+
+GUIDANCE,
+            default => ''
+        };
     }
 
     /**
@@ -131,7 +255,7 @@ ATURAN KERAS:
 - JANGAN tanyakan pertanyaan yang sama dua kali
 - JANGAN lewati pertanyaan "Detail yang dilakukan apa?" - ini WAJIB ditanyakan setelah deliverable
 - Setelah user menjawab "Detail yang dilakukan apa?", WAJIB lanjut ke "Progressnya sampai mana?" - JANGAN tanyakan detail lagi
-- Setelah user menjawab "Berapa lama pengerjaannya?", LANGSUNG tampilkan RINGKASAN - JANGAN tanyakan prioritas atau proyek lain
+- Setelah user menjawab "Berapa lama pengerjaannya?", tanyakan "Apakah masih ada tugas lain yang ingin Anda tambahkan untuk proyek ini?" sebelum menampilkan ringkasan
 - Setiap pertanyaan HANYA ditanyakan SATU KALI
 - Jangan lewati langkah hasil kerja (deliverable), detail, progress, dan estimasi.
 - Setiap jawaban user diakui dulu sebelum pertanyaan berikutnya dengan PARAFRASEKAN singkat jawaban user untuk menunjukkan pemahaman.
@@ -386,5 +510,189 @@ TD,
     public function updateDepartmentPrompt(string $departmentCode, string $prompt): void
     {
         $this->departmentPrompts[$departmentCode] = $prompt;
+    }
+
+    /**
+     * Validate user input for specific step
+     */
+    public function validateStepInput(string $step, string $input, array $options = []): array
+    {
+        $input = trim($input);
+
+        return match($step) {
+            'select_client', 'select_deliverable' => $this->validateSelection($input, $options),
+            'objective_as_is' => $this->validateObjective($input),
+            'timeline_validation' => $this->validateTimeline($input),
+            'task_inquiry' => $this->validateYesNo($input),
+            'percentage_allocation' => $this->validatePercentage($input),
+            default => ['valid' => true, 'message' => null]
+        };
+    }
+
+    /**
+     * Validate selection from options
+     */
+    protected function validateSelection(string $input, array $options): array
+    {
+        if (empty($options)) {
+            return ['valid' => false, 'message' => 'Tidak ada pilihan yang tersedia.'];
+        }
+
+        // Check if input matches any option (case-insensitive)
+        foreach ($options as $option) {
+            $optionValue = is_array($option) ? $option['value'] : $option;
+            if (strcasecmp($input, $optionValue) === 0) {
+                return ['valid' => true, 'message' => null];
+            }
+        }
+
+        return [
+            'valid' => false,
+            'message' => 'Pilihan tidak valid. Silakan pilih dari daftar yang tersedia.'
+        ];
+    }
+
+    /**
+     * Validate objective text
+     */
+    protected function validateObjective(string $input): array
+    {
+        if (strlen($input) < 10) {
+            return [
+                'valid' => false,
+                'message' => 'Mohon jelaskan lebih detail apa yang sedang Anda kerjakan (minimal 10 karakter).'
+            ];
+        }
+
+        // Check for meaningless input
+        if (preg_match('/^[a-z]{1,5}$/i', $input) || preg_match('/^(.)\1+$/', $input)) {
+            return [
+                'valid' => false,
+                'message' => 'Mohon berikan penjelasan yang lebih spesifik dan bermakna.'
+            ];
+        }
+
+        return ['valid' => true, 'message' => null];
+    }
+
+    /**
+     * Validate timeline input
+     */
+    protected function validateTimeline(string $input): array
+    {
+        $patterns = [
+            '/(\d+)\s*(hari|day|days)/i',
+            '/(\d+)\s*(minggu|week|weeks)/i',
+            '/(\d+)\s*(bulan|month|months)/i'
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $input)) {
+                return ['valid' => true, 'message' => null];
+            }
+        }
+
+        return [
+            'valid' => false,
+            'message' => 'Mohon berikan estimasi waktu yang jelas (contoh: "2 hari", "1 minggu", "3 bulan").'
+        ];
+    }
+
+    /**
+     * Validate yes/no response
+     */
+    protected function validateYesNo(string $input): array
+    {
+        $input = strtolower($input);
+        $validResponses = ['ya', 'iya', 'yes', 'ada', 'masih ada', 'tidak', 'no', 'nggak', 'enggak'];
+
+        if (in_array($input, $validResponses, true)) {
+            return ['valid' => true, 'message' => null];
+        }
+
+        return [
+            'valid' => false,
+            'message' => 'Mohon jawab dengan "Ya" atau "Tidak".'
+        ];
+    }
+
+    /**
+     * Validate percentage input
+     */
+    protected function validatePercentage(string $input): array
+    {
+        // Remove percentage sign if present
+        $input = str_replace(['%', 'persen', 'percent'], '', trim($input));
+
+        if (!is_numeric($input)) {
+            return [
+                'valid' => false,
+                'message' => 'Mohon masukkan angka yang valid (0-100).'
+            ];
+        }
+
+        $percentage = (int)$input;
+        if ($percentage < 0 || $percentage > 100) {
+            return [
+                'valid' => false,
+                'message' => 'Persentase harus antara 0 sampai 100.'
+            ];
+        }
+
+        return ['valid' => true, 'message' => null];
+    }
+
+    /**
+     * Get next step after current step
+     */
+    public function getNextStep(string $currentStep, ?string $userResponse = null): string
+    {
+        return match($currentStep) {
+            'select_client' => 'select_deliverable',
+            'select_deliverable' => 'objective_as_is',
+            'objective_as_is' => 'timeline_validation',
+            'timeline_validation' => 'task_inquiry',
+            'task_inquiry' => $this->isYesResponse($userResponse) ? 'select_deliverable' : 'percentage_allocation',
+            'percentage_allocation' => 'completed',
+            default => 'completed'
+        };
+    }
+
+    /**
+     * Check if response is "yes"
+     */
+    protected function isYesResponse(?string $response): bool
+    {
+        if (!$response) return false;
+
+        $response = strtolower(trim($response));
+        return in_array($response, ['ya', 'iya', 'yes', 'ada', 'masih ada'], true);
+    }
+
+    /**
+     * Generate response message for step
+     */
+    public function getStepMessage(string $step, array $context = []): string
+    {
+        $projectName = $context['project_name'] ?? '';
+        $deliverableName = $context['deliverable_name'] ?? '';
+        $category = $context['deliverable_category'] ?? '';
+
+        return match($step) {
+            'select_client' => 'Selamat datang! Silakan pilih Client atau R&D yang sedang Anda kerjakan:',
+            'select_deliverable' => $projectName
+                ? "Baik, proyek **{$projectName}**. Silakan pilih Key Deliverable yang akan Anda kerjakan:"
+                : "Silakan pilih Key Deliverable yang akan Anda kerjakan:",
+            'objective_as_is' => $deliverableName && $category
+                ? "Anda memilih **{$deliverableName}** (kategori: **{$category}**). Apa objektif pada pekerjaan ini?"
+                : "Apa objektif pada pekerjaan ini?",
+            'timeline_validation' => 'Berapa lama estimasi waktu pengerjaan untuk task ini? (contoh: "2 hari", "1 minggu", "3 bulan")',
+            'task_inquiry' => 'Apakah masih ada tugas lain yang ingin Anda tambahkan untuk proyek ini?',
+            'percentage_allocation' => $deliverableName
+                ? "Berapa persen progress penyelesaian untuk **{$deliverableName}**? (0-100)"
+                : "Berapa persen progress penyelesaian? (0-100)",
+            'completed' => 'Session sudah selesai. Terima kasih!',
+            default => 'Silakan lanjutkan...'
+        };
     }
 }

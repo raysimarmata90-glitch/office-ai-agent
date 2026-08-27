@@ -12,7 +12,22 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function ($schedule) {
+        // Check overdue projects every day at midnight
+        $schedule->command('projects:check-overdue')
+            ->daily()
+            ->at('00:00')
+            ->timezone('Asia/Jakarta');
+        
+        // Also check at noon for extra safety
+        $schedule->command('projects:check-overdue')
+            ->daily()
+            ->at('12:00')
+            ->timezone('Asia/Jakarta');
+    })
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: '*');
+        
         $middleware->alias([
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
         ]);

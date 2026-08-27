@@ -23,8 +23,9 @@ class AdminDashboardController extends Controller
     public function index()
     {
         $user = auth()->user();
+        $this->blockOverdueTasks();
         $tasks = Task::with(['project', 'user'])->get();
-        $projects = Project::with('tasks')->orderBy('nama')->get();
+        $projects = Project::with('tasks')->orderBy('client_or_rd')->get();
 
         $ringkas = TaskMetrics::ringkasStatus($tasks);
 
@@ -53,7 +54,7 @@ class AdminDashboardController extends Controller
 
         $overviewProyek = $projects->map(fn (Project $p) => [
             'id' => $p->id,
-            'nama' => $p->nama,
+            'nama' => $p->client_or_rd,
             'warna' => $p->warna,
             'tugas' => $p->tasks->count(),
             'pct' => TaskMetrics::averageProgressPercentage($p->tasks),
@@ -81,7 +82,7 @@ class AdminDashboardController extends Controller
             ->map(fn (Task $t) => [
                 'id' => $t->id,
                 'judul' => $t->judul,
-                'proyek' => $t->project?->nama ?? 'Tanpa Proyek',
+                'proyek' => $t->project?->client_or_rd ?? 'Tanpa Proyek',
                 'status_key' => $t->status,
                 'status' => $t->statusLabel(),
                 'prioritas' => $t->prioritas,
@@ -112,6 +113,7 @@ class AdminDashboardController extends Controller
      */
     public function kanbanFeed(Request $request)
     {
+        $this->blockOverdueTasks();
         $status = (string) $request->query('status', '');
         abort_unless(array_key_exists($status, Task::daftarStatus()), 404);
 
@@ -124,13 +126,13 @@ class AdminDashboardController extends Controller
                 $kunci = '%' . mb_strtolower(trim((string) $request->query('q'))) . '%';
                 $w->where(function ($x) use ($kunci) {
                     $x->whereRaw('LOWER(judul) LIKE ?', [$kunci])
-                        ->orWhereHas('project', fn ($p) => $p->whereRaw('LOWER(nama) LIKE ?', [$kunci]))
+                        ->orWhereHas('project', fn ($p) => $p->whereRaw('LOWER(client_or_rd) LIKE ?', [$kunci]))
                         ->orWhereHas('user', fn ($u) => $u->whereRaw('LOWER(name) LIKE ?', [$kunci]));
                 });
             })
             ->when($request->filled('proyek'), fn ($w) => $w->whereHas(
                 'project',
-                fn ($p) => $p->where('nama', $request->query('proyek'))
+                fn ($p) => $p->where('client_or_rd', $request->query('proyek'))
             ))
             ->when($request->filled('prioritas'), fn ($w) => $w->where('prioritas', $request->query('prioritas')))
             ->when($request->filled('user'), fn ($w) => $w->whereHas(
@@ -166,6 +168,15 @@ class AdminDashboardController extends Controller
         ]);
     }
 
+    private function blockOverdueTasks(): void
+    {
+        Task::whereNotNull('selesai')
+            ->whereDate('selesai', '<', now()->toDateString())
+            ->where('status', '!=', Task::STATUS_DONE)
+            ->where('status', '!=', Task::STATUS_BLOCKED)
+            ->update(['status' => Task::STATUS_BLOCKED]);
+    }
+
     public function users(Request $request)
     {
         $view = $request->query('view') === 'table' ? 'table' : 'card';
@@ -192,7 +203,7 @@ class AdminDashboardController extends Controller
                 ];
             });
 
-        $projects = Project::orderBy('nama')->get();
+        $projects = Project::orderBy('client_or_rd')->get();
         $semuaUser = User::where('is_active', true)->orderBy('name')->get();
         $daftarRole = Role::orderBy('display_name')->get(['id', 'name', 'display_name', 'department_id']);
         $daftarDep = Department::orderBy('name')->get(['id', 'name']);
@@ -390,7 +401,7 @@ class AdminDashboardController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        $projects = Project::orderBy('nama')->get();
+        $projects = Project::orderBy('client_or_rd')->get();
         $semuaUser = User::where('is_active', true)->orderBy('name')->get();
 
         // Pilihan filter diambil dari tugas yang ada, bukan seluruh pengguna,
@@ -430,7 +441,7 @@ class AdminDashboardController extends Controller
             $p = $items->first()->project;
 
             return [
-                'nama' => $p?->nama ?? '-',
+                'nama' => $p?->client_or_rd ?? '-',
                 'warna' => $p?->warna ?? '#f55d14',
                 'total' => $r['total'],
                 'done' => $r['done'],
@@ -483,7 +494,7 @@ class AdminDashboardController extends Controller
         return response()->streamDownload(function () use ($tasks) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            
+
             // Header kolom sesuai format yang diminta
             fputcsv($out, [
                 'No',
@@ -500,7 +511,7 @@ class AdminDashboardController extends Controller
             foreach ($tasks as $i => $t) {
                 fputcsv($out, [
                     $i + 1,                                          // No
-                    $t->project?->nama ?? '-',                       // Client or R&D (Nama Proyek)
+                    $t->project?->client_or_rd ?? '-',                // Client or R&D (Nama Proyek)
                     'KD-' . str_pad($t->id, 4, '0', STR_PAD_LEFT), // KD-ID (KD-0001, KD-0002, dll)
                     $t->deliverable ?? '-',                          // Key Deliverables (dari chat)
                     $t->statusLabel(),                               // Status
@@ -525,7 +536,7 @@ class AdminDashboardController extends Controller
         $tugas = Task::with('project')
             ->where('user_id', $conversation->user_id)
             ->whereHas('project', fn ($q) => $q->whereRaw(
-                'LOWER(nama) = ?',
+                'LOWER(client_or_rd) = ?',
                 [mb_strtolower(preg_replace('/^Proyek:\s*/i', '', (string) $conversation->title))]
             ))
             ->orderByDesc('created_at')
@@ -635,6 +646,67 @@ class AdminDashboardController extends Controller
         return response()->json([
             'success' => true,
             'pesan' => 'Request reset password ditolak.',
+        ]);
+    }
+
+    /**
+     * Show blocked projects monitoring page
+     */
+    public function blockedProjects(Request $request)
+    {
+        $timelineService = app(\App\Services\TimelineValidationService::class);
+
+        $blockedProjects = $timelineService->getBlockedProjects();
+        $overdueDeliverables = $timelineService->getOverdueDeliverables();
+        $stats = $timelineService->getSummaryStatistics();
+
+        return view('admin.blocked-projects', compact(
+            'blockedProjects',
+            'overdueDeliverables',
+            'stats'
+        ));
+    }
+
+    /**
+     * Unblock a project
+     */
+    public function unblockProject(Request $request, int $projectId)
+    {
+        $validated = $request->validate([
+            'reason' => 'nullable|string|max:500'
+        ]);
+
+        $timelineService = app(\App\Services\TimelineValidationService::class);
+        $success = $timelineService->unblockProject($projectId, $validated['reason'] ?? null);
+
+        if ($success) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Project berhasil di-unblock'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Project tidak ditemukan'
+        ], 404);
+    }
+
+    /**
+     * Run overdue check manually (admin action)
+     */
+    public function runOverdueCheck(Request $request)
+    {
+        $timelineService = app(\App\Services\TimelineValidationService::class);
+
+        $projectsResult = $timelineService->checkAndBlockOverdueProjects();
+        $deliverablesResult = $timelineService->checkAndBlockOverdueDeliverables();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengecekan overdue berhasil dilakukan',
+            'projects' => $projectsResult,
+            'deliverables' => $deliverablesResult
         ]);
     }
 }

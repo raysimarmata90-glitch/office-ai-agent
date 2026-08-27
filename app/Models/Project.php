@@ -3,62 +3,47 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Carbon\Carbon;
 
 class Project extends Model
 {
     protected $fillable = [
-        'nama',
-        'warna',
-        'deskripsi',
-        'berisiko',
-        'mulai',
-        'selesai',
-        'created_by',
+        'no',
+        'client_or_rd',
+        'kd_id',
+        'key_deliverables',
+        'status',
+        'pic',
+        'progress_update',
+        'next_steps',
+        'due_date',
+        'is_archived',
+        'is_blocked',
     ];
 
     protected function casts(): array
     {
         return [
-            'berisiko' => 'boolean',
-            'mulai' => 'date',
-            'selesai' => 'date',
+            'is_archived' => 'boolean',
+            'is_blocked' => 'boolean',
+            'due_date' => 'date',
         ];
     }
 
-    /**
-     * Palet warna penanda proyek. Sengaja berjarak jauh satu sama lain supaya
-     * dua proyek yang berdampingan di daftar tidak terlihat serupa.
-     */
-    public const PALET = [
-        '#f55d14', '#2c5cc5', '#1f7a52', '#b23c35',
-        '#6b46c1', '#0e7490', '#a05a1c', '#be185d',
-        '#4d7c0f', '#0369a1', '#c026d3', '#475569',
-        '#b45309', '#047857', '#7e22ce', '#1e40af',
-    ];
-
     protected static function booted(): void
     {
-        // Proyek baru selalu dapat warna, tanpa perlu diisi pemanggilnya.
-        static::creating(function (self $p) {
-            if (blank($p->warna)) {
-                $p->warna = self::warnaBerikutnya();
+        // Auto-block project jika melewati due date
+        static::saving(function (self $project) {
+            if ($project->due_date && Carbon::parse($project->due_date)->isPast()) {
+                $project->is_blocked = true;
             }
         });
     }
 
-    /**
-     * Warna palet yang paling jarang dipakai proyek lain. Selama jumlah proyek
-     * belum melewati panjang palet, hasilnya selalu unik.
-     */
-    public static function warnaBerikutnya(): string
+    public function deliverables(): HasMany
     {
-        $dipakai = self::query()->pluck('warna')->countBy();
-
-        return collect(self::PALET)
-            ->sortBy(fn ($w) => $dipakai->get($w, 0))
-            ->first();
+        return $this->hasMany(ProjectDeliverable::class);
     }
 
     public function tasks(): HasMany
@@ -66,30 +51,38 @@ class Project extends Model
         return $this->hasMany(Task::class);
     }
 
-    public function creator(): BelongsTo
+    public function chatSessions(): HasMany
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->hasMany(ChatSession::class);
     }
 
-    public function jumlahTugas(): int
+    /**
+     * Get deliverables by category
+     */
+    public function deliverablesByCategory(string $category): HasMany
     {
-        return $this->tasks->count();
+        return $this->deliverables()->where('category', $category);
     }
 
-    public function jumlahSelesai(): int
+    /**
+     * Get completion percentage
+     */
+    public function completionPercentage(): int
     {
-        return $this->tasks->where('status', Task::STATUS_DONE)->count();
+        $total = $this->deliverables->count();
+        if ($total === 0) return 0;
+
+        $completed = $this->deliverables->where('is_completed', true)->count();
+        return (int) round($completed / $total * 100);
     }
 
-    public function persentase(): int
+    /**
+     * Check if project is overdue
+     */
+    public function isOverdue(): bool
     {
-        $total = $this->jumlahTugas();
-
-        return $total === 0 ? 0 : (int) round($this->jumlahSelesai() / $total * 100);
-    }
-
-    public function kontributor(): int
-    {
-        return $this->tasks->pluck('user_id')->unique()->count();
+        if (!$this->due_date) return false;
+        return Carbon::parse($this->due_date)->isPast() && $this->status !== 'Closed';
     }
 }
+

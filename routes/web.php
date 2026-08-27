@@ -7,6 +7,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\Admin\ProjectAdminController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfilController;
+use App\Http\Controllers\ProjectChatController;
 use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,7 +29,7 @@ Route::middleware('guest')->group(function () {
 
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [LoginController::class, 'login']);
-    
+
     // Forgot Password Routes
     Route::get('/forgot-password', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
     Route::post('/forgot-password', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email');
@@ -66,6 +67,16 @@ Route::middleware('auth')->group(function () {
     Route::post('/conversations/{conversation}/messages', [ChatController::class, 'sendMessage'])->name('chat.send');
     Route::get('/conversations/{conversation}/messages', [ChatController::class, 'getMessages'])->name('chat.messages');
     Route::delete('/conversations/{conversation}', [ChatController::class, 'destroy'])->name('conversations.destroy');
+
+    // Project Chat Routes (Structured Flow)
+    Route::prefix('project-chat')->name('project-chat.')->group(function () {
+        Route::get('/', function() {
+            return view('project-chat');
+        })->name('index');
+        Route::get('/init', [ProjectChatController::class, 'initSession'])->name('init');
+        Route::post('/message', [ProjectChatController::class, 'handleMessage'])->name('message');
+        Route::post('/reset', [ProjectChatController::class, 'resetSession'])->name('reset');
+    });
 });
 
 // Admin Routes
@@ -95,7 +106,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/proyek', [ProjectAdminController::class, 'index'])->name('proyek.index');
     Route::post('/proyek', [ProjectAdminController::class, 'store'])->name('proyek.store');
     Route::get('/proyek/{project}', [ProjectAdminController::class, 'show'])->name('proyek.show');
+    Route::patch('/proyek/{project}/deliverables/percentages', [ProjectAdminController::class, 'updateDeliverablePercentages'])->name('proyek.deliverables.percentages');
     Route::delete('/proyek/{project}', [ProjectAdminController::class, 'destroy'])->name('proyek.destroy');
+
+    // Blocked Projects Monitoring
+    Route::get('/blocked-projects', [AdminDashboardController::class, 'blockedProjects'])->name('blocked-projects');
+    Route::post('/blocked-projects/{projectId}/unblock', [AdminDashboardController::class, 'unblockProject'])->name('blocked-projects.unblock');
+    Route::post('/blocked-projects/check', [AdminDashboardController::class, 'runOverdueCheck'])->name('blocked-projects.check');
 
     // Assign tugas ke pegawai
     Route::post('/tugas/assign', [ProjectAdminController::class, 'assign'])->name('tugas.assign');

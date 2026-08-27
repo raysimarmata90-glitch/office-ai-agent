@@ -22,7 +22,7 @@ class ChatController extends Controller
     protected WorkActivityService $workActivityService;
 
     public function __construct(
-        AgentOrchestrator $agent, 
+        AgentOrchestrator $agent,
         OptionGenerator $optionGenerator,
         WorkActivityService $workActivityService
     ) {
@@ -41,20 +41,63 @@ class ChatController extends Controller
 
     public const PROMPT_AWAL = 'Sapa user, minta pilih proyek baku dari Planning, lalu gali objektif as-is, harapan, deliverable, task sesuai planning, detail+progress, dan estimasi durasi.';
 
+    // NEW: Project tracking flow questions
+    public const PERTANYAAN_PROJECT_TRACKING = 'Halo! Senang bertemu dengan Anda. Pilih Client atau R&D dari daftar yang sedang Anda kerjakan hari ini:';
+
+    public const PERTANYAAN_KEY_DELIVERABLE = 'Baik, proyek {project}. Silakan pilih Key Deliverable yang akan Anda kerjakan:';
+
     /**
      * Metadata pesan pembuka: dropdown proyek baku + proyek yang dikerjakan user.
      */
     public static function metadataAwal(?User $user = null): array
     {
-        $opsi = $user ? self::opsiProyekPlanning($user) : [];
+        // NEW: Use project tracking from Excel data
+        $opsi = self::opsiProjectTracking();
 
         return [
             'system_prompt' => self::PROMPT_AWAL,
             'has_options' => $opsi !== [],
             'options' => $opsi,
-            'question_type' => 'project_list',
+            'question_type' => 'project_tracking_client',
             'allow_custom' => false,
+            'flow_type' => 'project_tracking', // Indicate this is project tracking flow
         ];
+    }
+
+    /**
+     * Get project options from Excel data (Project model)
+     */
+    public static function opsiProjectTracking(): array
+    {
+        return \App\Models\Project::where('is_archived', false)
+            ->where('is_blocked', false)
+            ->orderBy('no')
+            ->pluck('client_or_rd')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Get deliverables for selected project
+     */
+    public static function opsiDeliverables(string $clientName): array
+    {
+        $project = \App\Models\Project::where('client_or_rd', $clientName)
+            ->where('is_archived', false)
+            ->first();
+
+        if (!$project) {
+            return [];
+        }
+
+        return \App\Models\ProjectDeliverable::where('project_id', $project->id)
+            ->orderBy('code')
+            ->get()
+            ->map(function($deliverable) {
+                return $deliverable->deliverable_name;
+            })
+            ->toArray();
     }
 
     /**
@@ -65,11 +108,11 @@ class ChatController extends Controller
     public static function opsiProyekPlanning(User $user): array
     {
         $milikSaya = Project::whereHas('tasks', fn ($q) => $q->where('user_id', $user->id))
-            ->orderBy('nama')
-            ->pluck('nama')
+            ->orderBy('client_or_rd')
+            ->pluck('client_or_rd')
             ->all();
 
-        $semua = Project::orderBy('nama')->pluck('nama')->all();
+        $semua = Project::orderBy('client_or_rd')->pluck('client_or_rd')->all();
 
         return array_values(array_unique(array_merge($milikSaya, $semua)));
     }
@@ -81,7 +124,7 @@ class ChatController extends Controller
      */
     public static function opsiTaskPlanning(User $user, string $projectName): array
     {
-        $project = Project::where('nama', $projectName)->first();
+        $project = Project::where('client_or_rd', $projectName)->first();
         if ($project === null) {
             return [];
         }
@@ -103,7 +146,7 @@ class ChatController extends Controller
         $meta = self::metadataAwal($user);
         $content = ($meta['options'] ?? []) === []
             ? self::PERTANYAAN_TANPA_PROYEK
-            : self::PERTANYAAN_AWAL;
+            : self::PERTANYAAN_PROJECT_TRACKING; // Use project tracking question
 
         $conversation = Conversation::create([
             'user_id' => $user->id,
@@ -134,7 +177,7 @@ class ChatController extends Controller
         $metaAwal = self::metadataAwal($user);
         $pertanyaanAwal = ($metaAwal['options'] ?? []) === []
             ? self::PERTANYAAN_TANPA_PROYEK
-            : self::PERTANYAAN_AWAL;
+            : self::PERTANYAAN_PROJECT_TRACKING; // Use project tracking question
 
         return view('chat', [
             'conversation' => null,
@@ -267,6 +310,19 @@ class ChatController extends Controller
             ->orderByDesc('id')
             ->first();
 
+        // ✨ NEW: Handle Project Tracking Flow (Step 1: Select Client)
+        $prevType = $previousAiMessage?->metadata['question_type'] ?? null;
+        $flowType = $previousAiMessage?->metadata['flow_type'] ?? null;
+
+        if ($flowType === 'project_tracking' && $prevType === 'project_tracking_client') {
+            return $this->handleProjectTrackingClient($conversation, $message, $previousAiMessage);
+        }
+
+        // ✨ NEW: Handle Project Tracking Flow (Step 2: Select Key Deliverable)
+        if ($flowType === 'project_tracking' && $prevType === 'project_tracking_deliverable') {
+            return $this->handleProjectTrackingDeliverable($conversation, $message, $previousAiMessage);
+        }
+
         // Validate user answer BEFORE saving the message
         $validationMessage = $this->validateChatAnswer($message, $previousAiMessage);
         if ($validationMessage !== null) {
@@ -334,6 +390,37 @@ class ChatController extends Controller
         }
 
         $prevType = $previousAiMessage?->metadata['question_type'] ?? null;
+
+        // Setelah estimasi, konfirmasi dulu apakah user masih memiliki tugas lain.
+        if ($prevType === 'estimation') {
+            $taskInquiry = 'Apakah masih ada tugas lain yang ingin Anda tambahkan untuk proyek ini?';
+
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'ai',
+                'content' => $taskInquiry,
+                'step_number' => $conversation->current_step,
+                'metadata' => [
+                    'has_options' => true,
+                    'options' => ['Ya', 'Tidak'],
+                    'question_type' => 'task_inquiry',
+                    'allow_custom' => false,
+                ],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Estimasi diterima',
+                'ai_response' => [
+                    'content' => $taskInquiry,
+                    'type' => 'task_inquiry',
+                    'has_options' => true,
+                    'options' => ['Ya', 'Tidak'],
+                    'question_type' => 'task_inquiry',
+                    'allow_custom' => false,
+                ],
+            ]);
+        }
 
         // Pilih proyek dari daftar Planning (pertanyaan pembuka atau daftar ulang)
         if (in_array($prevType, ['project_list', 'project_selection'], true)) {
@@ -671,7 +758,7 @@ class ChatController extends Controller
     private function isValidProjectName(string $name): bool
     {
         $name = trim($name);
-        
+
         // Must have at least 3 characters
         if (mb_strlen($name) < 3) {
             return false;
@@ -685,17 +772,17 @@ class ChatController extends Controller
         // Count words
         $words = preg_split('/\s+/', $name);
         $wordCount = count($words);
-        
+
         // Single word validation
         if ($wordCount === 1) {
             $lowerName = mb_strtolower($name);
-            
+
             // Reject generic single words
             $genericSingleWords = ['proyek', 'project', 'sistem', 'system', 'aplikasi', 'app', 'website', 'site', 'data', 'test', 'tes', 'coba'];
             if (in_array($lowerName, $genericSingleWords)) {
                 return false;
             }
-            
+
             // Check for repeated character patterns (more than 50% of word is repeated chars)
             // e.g., "gogo" (go-go), "aajja" (aa-jj), "aaabbb"
             $charCount = [];
@@ -703,7 +790,7 @@ class ChatController extends Controller
             foreach ($chars as $char) {
                 $charCount[$char] = ($charCount[$char] ?? 0) + 1;
             }
-            
+
             // Check if any character appears too frequently (more than 40% of total)
             $totalChars = mb_strlen($lowerName);
             foreach ($charCount as $char => $count) {
@@ -712,7 +799,7 @@ class ChatController extends Controller
                     return false;
                 }
             }
-            
+
             // Check for repeating pairs/patterns: "gogo", "abab", "aajja"
             // Detect if word has repeating consecutive chars (aa, bb, cc, etc)
             if (preg_match('/(.)\1/', $lowerName)) {
@@ -725,13 +812,13 @@ class ChatController extends Controller
                     return false;
                 }
             }
-            
+
             // Check for vowel/consonant ratio to detect random typing
             // Real words have balanced vowel-consonant ratio
             $vowels = preg_match_all('/[aeiouAEIOU]/', $name);
             $consonants = preg_match_all('/[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]/', $name);
             $totalLetters = $vowels + $consonants;
-            
+
             if ($totalLetters > 0) {
                 $vowelRatio = $vowels / $totalLetters;
                 // Real words typically have 30-50% vowels
@@ -740,14 +827,14 @@ class ChatController extends Controller
                     return false;
                 }
             }
-            
+
             // Check for alternating consonant patterns (common in random typing)
             // e.g., "ijbnv", "dfghj", "qwrty"
             if (preg_match('/[bcdfghjklmnpqrstvwxyz]{3,}/i', $lowerName)) {
                 // Too many consecutive consonants - likely random
                 return false;
             }
-            
+
             // Accept if it's a known company/brand name pattern
             if (mb_strlen($name) >= 5 || preg_match('/[A-Z]/', $name) || preg_match('/\d/', $name)) {
                 // But still reject keyboard patterns
@@ -756,16 +843,16 @@ class ChatController extends Controller
                     'qwe', 'asd', 'zxc', 'rty', 'fgh', 'vbn', 'uio', 'jkl', 'bnm',
                     'dfg', 'cvb', 'ghj', 'erty', 'sdfg', 'xcvb', 'tyui', 'ghjk', 'vbnm'
                 ];
-                
+
                 foreach ($keyboardPatterns as $pattern) {
                     if (str_contains($lowerName, $pattern)) {
                         return false;
                     }
                 }
-                
+
                 return true; // Valid single word (e.g., "Mayora", "Tokopedia", "Dashboard123")
             }
-            
+
             return false; // Too short single word without context
         }
 
@@ -782,20 +869,20 @@ class ChatController extends Controller
         // Reject generic/vague combinations
         $genericWords = ['proyek', 'project', 'sistem', 'system', 'aplikasi', 'app', 'website', 'site', 'data', 'test', 'tes', 'coba', 'baru', 'new'];
         $lowerWords = array_map('mb_strtolower', $words);
-        
+
         // If first word is generic and second word exists, check if second word is meaningful
         if (count($words) === 2 && in_array($lowerWords[0], $genericWords)) {
             $secondWord = $words[1];
-            
+
             // Reject if second word is just a number or too short (< 3 chars)
             if (is_numeric($secondWord) || mb_strlen($secondWord) < 3) {
                 return false;
             }
-            
+
             // Check if second word is meaningful (not random typing)
             // Accept if it's a proper name/brand (has good vowel ratio, no keyboard patterns)
             $secondLower = mb_strtolower($secondWord);
-            
+
             // Check for keyboard patterns in second word
             $keyboardPatterns = ['qwerty', 'asdf', 'zxcv', 'qaz', 'wsx', 'edc', 'rfv'];
             foreach ($keyboardPatterns as $pattern) {
@@ -803,32 +890,32 @@ class ChatController extends Controller
                     return false;
                 }
             }
-            
+
             // Check if it's an acronym (all uppercase, 3-6 chars) - accept immediately
             if (preg_match('/^[A-Z]{3,6}$/', $secondWord)) {
                 return true; // Valid acronyms like "AKR", "BPJS", "IBM", "NASA"
             }
-            
+
             // Check vowel ratio of second word
             $vowels = preg_match_all('/[aeiouAEIOU]/', $secondWord);
             $consonants = preg_match_all('/[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]/', $secondWord);
             $totalLetters = $vowels + $consonants;
-            
+
             if ($totalLetters > 0) {
                 $vowelRatio = $vowels / $totalLetters;
                 // Accept if vowel ratio is reasonable (20-60% is acceptable for names)
                 // OR if it's 0-15% but at least 3 chars (could be acronym in mixed case)
-                if (($vowelRatio >= 0.20 && $vowelRatio <= 0.60) || 
+                if (($vowelRatio >= 0.20 && $vowelRatio <= 0.60) ||
                     ($vowelRatio <= 0.15 && mb_strlen($secondWord) >= 3)) {
                     return true; // Valid combination like "Proyek Mayora", "Proyek BPJS", "Project Dashboard"
                 }
             }
-            
+
             // If vowel ratio check fails, still accept if word length is reasonable (5+)
             if (mb_strlen($secondWord) >= 5) {
                 return true;
             }
-            
+
             return false;
         }
 
@@ -839,7 +926,7 @@ class ChatController extends Controller
             'qwe', 'asd', 'zxc', 'rty', 'fgh', 'vbn', 'uio', 'jkl', 'bnm',
             'dfg', 'cvb', 'ghj', 'erty', 'sdfg', 'xcvb', 'tyui', 'ghjk', 'vbnm'
         ];
-        
+
         foreach ($keyboardPatterns as $pattern) {
             if (str_contains($lowerName, $pattern)) {
                 return false;
@@ -971,7 +1058,7 @@ class ChatController extends Controller
     private function ensureStructuredOptions(array $parsedResponse, string $responseContent, array $context): array
     {
         $question = mb_strtolower($responseContent);
-        
+
         // ✨ PRIORITY: Cek dulu apakah ini pertanyaan konfirmasi ringkasan
         $isConfirmationQuestion = preg_match(
             '/catatan ini sudah sesuai|informasi ini sudah tepat|simpan sebagai catatan|apakah catatan ini sudah sesuai/iu',
@@ -1399,12 +1486,7 @@ class ChatController extends Controller
         }
 
         $project = Project::firstOrCreate(
-            ['nama' => $projectName],
-            [
-                'mulai' => now()->startOfMonth(),
-                'selesai' => now()->addMonth()->endOfMonth(),
-                'created_by' => $user->id,
-            ]
+            ['client_or_rd' => $projectName]
         );
 
         $objektif = $this->extractAnswerForType($conversation, 'objective');
@@ -1416,31 +1498,31 @@ class ChatController extends Controller
 
         // Format deskripsi dengan semua informasi dari chat
         $deskripsiParts = [];
-        
+
         if ($objektif) {
             $deskripsiParts[] = "Objektif: {$objektif}";
         }
-        
+
         if ($harapan) {
             $deskripsiParts[] = "Harapan: {$harapan}";
         }
-        
+
         if ($deliverable) {
             $deskripsiParts[] = "Hasil kerja (deliverable): {$deliverable}";
         }
-        
+
         if ($detail) {
             $deskripsiParts[] = "Detail: {$detail}";
         }
-        
+
         if ($progress) {
             $deskripsiParts[] = "Progress: {$progress}";
         }
-        
+
         if ($estimasi) {
             $deskripsiParts[] = "Estimasi: {$estimasi}";
         }
-        
+
         // Jika tidak ada informasi detail, gunakan work description
         if (empty($deskripsiParts)) {
             $deskripsi = $workDescription;
@@ -1928,5 +2010,373 @@ class ChatController extends Controller
     private function handleProjectName(Conversation $conversation, string $projectName): \Illuminate\Http\JsonResponse
     {
         return $this->handleSelectedPreviousProject($conversation, $projectName);
+    }
+
+    /**
+     * Handle Project Tracking Step 1: User selects Client/R&D
+     */
+    private function handleProjectTrackingClient(Conversation $conversation, string $message, Message $previousAiMessage): \Illuminate\Http\JsonResponse
+    {
+        // Validate selection
+        $project = \App\Models\Project::where('client_or_rd', $message)
+            ->where('is_archived', false)
+            ->where('is_blocked', false)
+            ->first();
+
+        // Save user message
+        $userMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'user',
+            'content' => $message,
+            'step_number' => $conversation->current_step,
+        ]);
+
+        if (!$project) {
+            // Invalid selection - ask again
+            $aiMessage = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'ai',
+                'content' => 'Maaf, pilihan tidak valid. Silakan pilih Client atau R&D dari daftar yang tersedia:',
+                'step_number' => $conversation->current_step,
+                'metadata' => [
+                    'is_validation_error' => true,
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_client',
+                    'allow_custom' => false,
+                    'flow_type' => 'project_tracking',
+                ],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pilihan tidak valid',
+                'validation_error' => true,
+                'ai_response' => [
+                    'content' => $aiMessage->content,
+                    'type' => 'validation_error',
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_client',
+                    'allow_custom' => false,
+                ],
+            ]);
+        }
+
+        // Valid selection - update conversation title and move to deliverables
+        $conversation->update(['title' => $project->client_or_rd]);
+
+        // Store project info in conversation metadata
+        $metadata = $conversation->metadata ?? [];
+        $metadata['project_tracking'] = [
+            'project_id' => $project->id,
+            'client' => $project->client_or_rd,
+            'project_name' => $project->key_deliverables,
+            'step' => 'select_deliverable',
+        ];
+        $conversation->metadata = $metadata;
+        $conversation->save();
+
+        // Get deliverables for this project
+        $deliverables = self::opsiDeliverables($project->client_or_rd);
+
+        // Create AI message with deliverables
+        $content = str_replace('{project}', $project->key_deliverables, self::PERTANYAAN_KEY_DELIVERABLE);
+
+        $aiMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'ai',
+            'content' => $content,
+            'step_number' => $conversation->current_step,
+            'metadata' => [
+                'has_options' => true,
+                'options' => $deliverables,
+                'question_type' => 'project_tracking_deliverable',
+                'allow_custom' => false,
+                'flow_type' => 'project_tracking',
+                'project_id' => $project->id,
+                'project_name' => $project->key_deliverables,
+            ],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Client dipilih',
+            'ai_response' => [
+                'content' => $content,
+                'type' => 'select_deliverable',
+                'has_options' => true,
+                'options' => $deliverables,
+                'question_type' => 'project_tracking_deliverable',
+                'allow_custom' => false,
+            ],
+        ]);
+    }
+
+    /**
+     * Handle Project Tracking Step 2: User selects Key Deliverable
+     */
+    private function handleProjectTrackingDeliverable(Conversation $conversation, string $message, Message $previousAiMessage): \Illuminate\Http\JsonResponse
+    {
+        // Extract project from conversation metadata
+        $metadata = $conversation->metadata ?? [];
+        $projectTracking = $metadata['project_tracking'] ?? [];
+        $projectId = $projectTracking['project_id'] ?? null;
+
+        if (!$projectId) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Project information not found'
+            ], 400);
+        }
+
+        // Parse deliverable selection (by name only)
+        $cleanMessage = trim($message);
+
+        // Find deliverable by name
+        $deliverable = \App\Models\ProjectDeliverable::where('project_id', $projectId)
+            ->where('deliverable_name', 'LIKE', "%{$cleanMessage}%")
+            ->first();
+
+        // Save user message
+        $userMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'user',
+            'content' => $message,
+            'step_number' => $conversation->current_step,
+        ]);
+
+        if (!$deliverable) {
+            // Invalid selection - ask again
+            $aiMessage = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'ai',
+                'content' => 'Maaf, pilihan tidak valid. Silakan pilih Key Deliverable dari daftar yang tersedia:',
+                'step_number' => $conversation->current_step,
+                'metadata' => [
+                    'is_validation_error' => true,
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                    'flow_type' => 'project_tracking',
+                ],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pilihan tidak valid',
+                'validation_error' => true,
+                'ai_response' => [
+                    'content' => $aiMessage->content,
+                    'type' => 'validation_error',
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                ],
+            ]);
+        }
+
+        // Valid selection - store in metadata and continue to objective
+        $projectTracking['deliverable_id'] = $deliverable->id;
+        $projectTracking['deliverable_name'] = $deliverable->deliverable_name;
+        $projectTracking['deliverable_code'] = $deliverable->code;
+        $projectTracking['deliverable_category'] = $deliverable->category;
+        $projectTracking['step'] = 'objective_as_is';
+
+        $metadata['project_tracking'] = $projectTracking;
+        $conversation->metadata = $metadata;
+        $conversation->save();
+
+        // Ask for objective (as-is)
+        $content = "Baik, Anda memilih {$deliverable->deliverable_name} (kategori: {$deliverable->category}).\n\nApa objektif pada pekerjaan ini?";
+
+        $aiMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'ai',
+            'content' => $content,
+            'step_number' => $conversation->current_step,
+            'metadata' => [
+                'has_options' => false,
+                'options' => null,
+                'question_type' => 'objective',
+                'allow_custom' => true,
+                'flow_type' => 'project_tracking',
+                'expects' => 'objective_text',
+                'deliverable_info' => [
+                    'id' => $deliverable->id,
+                    'name' => $deliverable->deliverable_name,
+                    'code' => $deliverable->code,
+                    'category' => $deliverable->category,
+                ],
+            ],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Deliverable dipilih',
+            'ai_response' => [
+                'content' => $content,
+                'type' => 'objective',
+                'has_options' => false,
+                'options' => null,
+                'question_type' => 'objective',
+                'allow_custom' => true,
+            ],
+        ]);
+    }
+
+    /**
+     * Legacy project tracking deliverable handler retained for older session metadata.
+     */
+    private function handleLegacyProjectTrackingDeliverable(Conversation $conversation, string $message, Message $previousAiMessage): \Illuminate\Http\JsonResponse
+    {
+        $selectedProject = $previousAiMessage->metadata['selected_project'] ?? null;
+
+        if (!$selectedProject) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Project context lost',
+            ], 400);
+        }
+
+        // Extract deliverable code from the selection (format: "[CODE] Name")
+        preg_match('/\[([^\]]+)\]/', $message, $matches);
+        $deliverableCode = $matches[1] ?? null;
+
+        if (!$deliverableCode) {
+            // Invalid format - ask again
+            $aiMessage = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'ai',
+                'content' => 'Maaf, pilihan tidak valid. Silakan pilih Key Deliverable dari daftar yang tersedia:',
+                'step_number' => $conversation->current_step,
+                'metadata' => [
+                    'is_validation_error' => true,
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                    'flow_type' => 'project_tracking',
+                    'selected_project' => $selectedProject,
+                ],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pilihan tidak valid',
+                'validation_error' => true,
+                'ai_response' => [
+                    'content' => $aiMessage->content,
+                    'type' => 'validation_error',
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                ],
+            ]);
+        }
+
+        // Save user message
+        $userMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'user',
+            'content' => $message,
+            'step_number' => $conversation->current_step,
+        ]);
+
+        // Find the deliverable
+        $project = \App\Models\Project::where('client_or_rd', $selectedProject)
+            ->where('is_archived', false)
+            ->first();
+
+        if (!$project) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Project not found',
+            ], 404);
+        }
+
+        $deliverable = \App\Models\ProjectDeliverable::where('project_id', $project->id)
+            ->where('code', $deliverableCode)
+            ->first();
+
+        if (!$deliverable) {
+            // Deliverable not found - ask again
+            $aiMessage = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'ai',
+                'content' => 'Maaf, Key Deliverable tidak ditemukan. Silakan pilih dari daftar yang tersedia:',
+                'step_number' => $conversation->current_step,
+                'metadata' => [
+                    'is_validation_error' => true,
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                    'flow_type' => 'project_tracking',
+                    'selected_project' => $selectedProject,
+                ],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Deliverable tidak ditemukan',
+                'validation_error' => true,
+                'ai_response' => [
+                    'content' => $aiMessage->content,
+                    'type' => 'validation_error',
+                    'has_options' => true,
+                    'options' => $previousAiMessage->metadata['options'] ?? [],
+                    'question_type' => 'project_tracking_deliverable',
+                    'allow_custom' => false,
+                ],
+            ]);
+        }
+
+        // Store project and deliverable context
+        $metadata = $conversation->metadata ?? [];
+        $metadata['selected_project'] = $selectedProject;
+        $metadata['selected_deliverable'] = [
+            'code' => $deliverable->code,
+            'name' => $deliverable->deliverable_name,
+            'category' => $deliverable->category,
+        ];
+        $conversation->update(['metadata' => $metadata]);
+
+        // Now ask for objective with the context
+        $objectiveQuestion = "Baik, untuk proyek {$selectedProject} - Key Deliverable [{$deliverable->code}] {$deliverable->deliverable_name}. Apa yang sedang Anda kerjakan?";
+
+        $aiMessage = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_type' => 'ai',
+            'content' => $objectiveQuestion,
+            'step_number' => $conversation->current_step + 1,
+            'metadata' => [
+                'has_options' => false,
+                'options' => [],
+                'question_type' => 'objective',
+                'allow_custom' => true,
+                'flow_type' => 'project_tracking',
+                'expects' => 'objective_text',
+            ],
+        ]);
+
+        $conversation->increment('current_step');
+        $conversation->update(['title' => "{$selectedProject} - {$deliverable->code}"]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pesan berhasil dikirim',
+            'ai_response' => [
+                'content' => $objectiveQuestion,
+                'type' => 'question',
+                'has_options' => false,
+                'options' => [],
+                'question_type' => 'objective',
+                'allow_custom' => true,
+            ],
+        ]);
     }
 }

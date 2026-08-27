@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Project;
+use App\Models\ProjectDeliverable;
 use App\Models\Task;
 use App\Models\TaskEvidence;
 use App\Models\User;
@@ -16,13 +17,13 @@ class ProjectAdminController extends Controller
 {
     public function index()
     {
-        $projects = Project::with('tasks')->orderBy('nama')->get()->map(function (Project $p) {
+        $projects = Project::with('tasks')->orderBy('client_or_rd')->get()->map(function (Project $p) {
             $r = TaskMetrics::ringkasStatus($p->tasks);
 
             return [
                 'model' => $p,
                 'id' => $p->id,
-                'nama' => $p->nama,
+                'nama' => $p->client_or_rd,
                 'warna' => $p->warna,
                 'tugas' => $r['total'],
                 'selesai' => $r['done'],
@@ -41,7 +42,7 @@ class ProjectAdminController extends Controller
 
     public function show(Project $project)
     {
-        $project->load(['tasks.user', 'tasks.reviewer', 'tasks.evidences']);
+        $project->load(['tasks.user', 'tasks.reviewer', 'tasks.evidences', 'deliverables']);
 
         $ringkas = TaskMetrics::ringkasStatus($project->tasks);
         $kanban = TaskMetrics::kanban($project->tasks);
@@ -56,10 +57,44 @@ class ProjectAdminController extends Controller
             ];
         })->sortByDesc('total')->values();
 
-        $projects = Project::orderBy('nama')->get();
+        $projects = Project::orderBy('client_or_rd')->get();
         $semuaUser = User::where('is_active', true)->orderBy('name')->get();
 
         return view('admin.proyek-detail', compact('project', 'ringkas', 'kanban', 'kontributor', 'projects', 'semuaUser'));
+    }
+
+    public function updateDeliverablePercentages(Request $request, Project $project)
+    {
+        $validated = $request->validate([
+            'percentages' => ['required', 'array'],
+            'percentages.*' => ['required', 'integer', 'min:0', 'max:100'],
+        ]);
+
+        $deliverableIds = $project->deliverables()->pluck('id')->all();
+        $percentages = collect($validated['percentages']);
+
+        if ($percentages->keys()->diff($deliverableIds)->isNotEmpty()) {
+            return response()->json(['message' => 'Key deliverable tidak valid untuk proyek ini.'], 422);
+        }
+
+        if ($percentages->sum() !== 100) {
+            return response()->json(['message' => 'Total persentase key deliverable harus tepat 100%.'], 422);
+        }
+
+        ProjectDeliverable::where('project_id', $project->id)
+            ->whereIn('id', $percentages->keys())
+            ->get()
+            ->each(function (ProjectDeliverable $deliverable) use ($percentages) {
+                $deliverable->update([
+                    'completion_percentage' => $percentages->get((string) $deliverable->id),
+                    'is_completed' => $percentages->get((string) $deliverable->id) === 100,
+                ]);
+            });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pembagian persentase key deliverable berhasil disimpan.',
+        ]);
     }
 
     public function store(Request $request)
@@ -72,10 +107,11 @@ class ProjectAdminController extends Controller
             'selesai' => ['nullable', 'date', 'after_or_equal:mulai'],
         ]);
 
-        $validated['created_by'] = $request->user()->id;
-        $project = Project::create($validated);
+        $project = Project::create([
+            'client_or_rd' => $validated['nama'],
+        ]);
 
-        return back()->with('success', 'Proyek "' . $project->nama . '" berhasil dibuat.');
+        return back()->with('success', 'Proyek "' . $project->client_or_rd . '" berhasil dibuat.');
     }
 
     public function assign(Request $request)
@@ -115,10 +151,7 @@ class ProjectAdminController extends Controller
         }
 
         $projectId = $validated['project_id'] ?? Project::create([
-            'nama' => $validated['project_baru'],
-            'mulai' => $validated['mulai'],
-            'selesai' => $validated['selesai'],
-            'created_by' => $request->user()->id,
+            'client_or_rd' => $validated['project_baru'],
         ])->id;
 
         $task = Task::create([
@@ -152,8 +185,8 @@ class ProjectAdminController extends Controller
      */
     public function destroy(Request $request, Project $project)
     {
-        $namaProyek = $project->nama;
-        
+        $namaProyek = $project->client_or_rd;
+
         // Delete all evidences related to tasks in this project
         foreach ($project->tasks as $task) {
             foreach ($task->evidences as $evidence) {
@@ -161,10 +194,10 @@ class ProjectAdminController extends Controller
                 $evidence->delete();
             }
         }
-        
+
         // Delete all tasks in this project
         $project->tasks()->delete();
-        
+
         // Delete the project itself
         $project->delete();
 

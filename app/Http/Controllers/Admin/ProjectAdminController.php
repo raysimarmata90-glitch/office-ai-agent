@@ -26,7 +26,7 @@ class ProjectAdminController extends Controller
                 'warna' => $p->warna,
                 'tugas' => $r['total'],
                 'selesai' => $r['done'],
-                'pct' => $r['pct'],
+                'pct' => TaskMetrics::averageProgressPercentage($p->tasks),
                 'kontributor' => $p->tasks->pluck('user_id')->unique()->count(),
                 'segmen' => TaskMetrics::segmen($p->tasks),
                 'dibuat' => $p->created_at,
@@ -51,7 +51,7 @@ class ProjectAdminController extends Controller
             return [
                 'user' => $items->first()->user,
                 'total' => $r['total'],
-                'pct' => $r['pct'],
+                'pct' => TaskMetrics::averageProgressPercentage($items),
                 'ringkas' => $r,
             ];
         })->sortByDesc('total')->values();
@@ -145,5 +145,35 @@ class ProjectAdminController extends Controller
         }
 
         return back()->with('success', $pesan);
+    }
+
+    /**
+     * Delete a project and all its related tasks and evidences
+     */
+    public function destroy(Request $request, Project $project)
+    {
+        $namaProyek = $project->nama;
+        
+        // Delete all evidences related to tasks in this project
+        foreach ($project->tasks as $task) {
+            foreach ($task->evidences as $evidence) {
+                $evidence->hapusBerkas();
+                $evidence->delete();
+            }
+        }
+        
+        // Delete all tasks in this project
+        $project->tasks()->delete();
+        
+        // Delete the project itself
+        $project->delete();
+
+        $pesan = 'Proyek "' . $namaProyek . '" berhasil dihapus.';
+
+        if ($request->expectsJson()) {
+            return response()->json(['success' => true, 'pesan' => $pesan]);
+        }
+
+        return redirect()->route('admin.proyek.index')->with('success', $pesan);
     }
 }

@@ -31,16 +31,18 @@ class OptionGenerator
         $departmentCode = $context['department_code'] ?? null;
         
         return match($type) {
-            'project_selection' => $this->projectSelectionOptions($context),
+            'project_selection', 'project_list' => $this->projectSelectionOptions($context),
             'objective' => $this->objectiveOptions($context, $departmentCode),
             'expectation' => $this->expectationOptions($context, $departmentCode),
+            'deliverable' => $this->deliverableOptions($context, $departmentCode),
             'current_task' => $this->currentTaskOptions($context, $departmentCode),
             'task_detail' => $this->taskDetailOptions($context, $departmentCode),
+            'progress' => $this->progressOptions($context),
             'task_challenge' => $this->taskChallengeOptions($context, $departmentCode),
             'task_approach' => $this->taskApproachOptions($context, $departmentCode),
             'estimation' => $this->estimationOptions($context),
             'priority' => $this->priorityOptions($context),
-            'other_project' => ['Ya, ada proyek lain', 'Tidak ada proyek lain'],
+            'other_project' => ['Ya, ada proyek lain', 'Tidak, hanya ini saja'],
             'confirmation' => ['Iya', 'Tidak'],
             'method_clarification' => $this->methodClarificationOptions($context),
             default => [],
@@ -99,8 +101,39 @@ class OptionGenerator
 
     private function projectSelectionOptions(array $context): array
     {
-        // Simplified - only 2 main options
-        return ['Proyek Baru', 'Lanjut Proyek Sebelumnya'];
+        // Proyek baku dari Planning (sudah diisi controller); fallback kosong.
+        if (! empty($context['planned_projects'])) {
+            return array_values($context['planned_projects']);
+        }
+
+        return [];
+    }
+
+    private function progressOptions(array $context): array
+    {
+        return [
+            '0% — Belum mulai',
+            '25% — Baru dimulai',
+            '50% — Setengah jalan',
+            '75% — Hampir selesai',
+            '100% — Selesai',
+        ];
+    }
+
+    private function deliverableOptions(array $context, ?string $departmentCode = null): array
+    {
+        if ($departmentCode !== null) {
+            return $this->getDepartmentSpecificDeliverables($departmentCode);
+        }
+
+        return $this->shuffleOptions([
+            'Dokumen / Laporan',
+            'Prototype / Demo',
+            'Modul Fitur Siap Uji',
+            'Dashboard / Report',
+            'API / Integrasi',
+            'Dataset / Model',
+        ], 4);
     }
 
     private function objectiveOptions(array $context, ?string $departmentCode = null): array
@@ -280,6 +313,11 @@ class OptionGenerator
 
     private function currentTaskOptions(array $context, ?string $departmentCode = null): array
     {
+        // Task WAJIB dari Planning jika tersedia
+        if (! empty($context['planned_tasks'])) {
+            return array_values($context['planned_tasks']);
+        }
+
         // CRITICAL: ALWAYS prioritize department-specific options if department code exists
         // This ensures each department gets relevant task options based on their role
         // Pattern matching is ONLY used as fallback when no department code is available
@@ -421,12 +459,25 @@ class OptionGenerator
      */
     private function taskDetailOptions(array $context, ?string $departmentCode = null): array
     {
-        // CRITICAL: ALWAYS prioritize department-specific options if department code exists
-        // This ensures task details are relevant to the user's actual department role
-        // Pattern matching is ONLY used as fallback when no department code is available
+        // Gabungan detail pekerjaan + progress (poin 6 feedback bos)
+        $progressMix = [
+            '0% — Belum mulai, masih setup',
+            '25% — Baru mulai implementasi',
+            '50% — Setengah jalan, lanjut develop',
+            '75% — Hampir selesai, tinggal polish',
+            '100% — Selesai, siap review',
+        ];
+
         if ($departmentCode !== null) {
-            $currentTask = strtolower($context['current_task'] ?? $context['user_input'] ?? '');
-            return $this->getDepartmentSpecificTaskDetails($departmentCode, $currentTask);
+            $details = $this->getDepartmentSpecificTaskDetails(
+                $departmentCode,
+                strtolower($context['current_task'] ?? $context['user_input'] ?? '')
+            );
+
+            return array_slice(array_values(array_unique(array_merge(
+                array_slice($details, 0, 3),
+                $progressMix
+            ))), 0, 5);
         }
 
         // Fallback to pattern matching only if no department code
@@ -1101,6 +1152,58 @@ class OptionGenerator
                 'Keterbatasan Resource',
                 'Kompleksitas Teknis',
                 'Koordinasi Tim',
+            ], 4),
+        };
+    }
+
+    /**
+     * Get department-specific deliverables
+     */
+    private function getDepartmentSpecificDeliverables(string $departmentCode): array
+    {
+        return match ($departmentCode) {
+            'ai' => $this->shuffleOptions([
+                'Model Terlatih + Metrics',
+                'Notebook Eksperimen',
+                'Pipeline Inference',
+                'Laporan Evaluasi Model',
+                'Dataset Bersih / Features',
+                'API Serving Model',
+                'Dashboard Monitoring Model',
+            ], 4),
+            'platform' => $this->shuffleOptions([
+                'Infrastructure as Code',
+                'Pipeline CI/CD Berjalan',
+                'Monitoring Dashboard',
+                'Runbook / Dokumentasi Ops',
+                'Environment Siap Deploy',
+                'Backup & DR Plan',
+                'Security Hardening Report',
+            ], 4),
+            'ba' => $this->shuffleOptions([
+                'Dokumen Requirements',
+                'Business Proposal',
+                'Process Flow / BRD',
+                'Presentasi Stakeholder',
+                'User Stories / Backlog',
+                'Gap Analysis Report',
+                'Business Case / ROI',
+            ], 4),
+            'td', 'hr' => $this->shuffleOptions([
+                'Sprint Plan / Timeline',
+                'Status Report',
+                'Release Notes',
+                'Risk Register Update',
+                'Delivery Checklist',
+                'Retrospective Notes',
+                'Resource Plan',
+            ], 4),
+            default => $this->shuffleOptions([
+                'Dokumen / Laporan',
+                'Prototype / Demo',
+                'Modul Fitur Siap Uji',
+                'Dashboard / Report',
+                'API / Integrasi',
             ], 4),
         };
     }

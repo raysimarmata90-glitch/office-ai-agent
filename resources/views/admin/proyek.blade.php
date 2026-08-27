@@ -31,6 +31,43 @@ cari='';
 if(inCari)inCari.value='';
 terapkan();
 });
+
+// Hapus proyek
+async function hapusProyek(id, nama) {
+    const token = document.querySelector('meta[name="csrf-token"]').content;
+    const lanjut = window.InaaiDialog ? await window.InaaiDialog.konfirmasi({
+        judul: 'Hapus Proyek',
+        teks: 'Proyek "' + nama + '" akan dihapus permanen beserta seluruh tugas yang terkait. Tindakan ini tidak bisa dibatalkan.',
+        ok: 'Iya, hapus proyek',
+        jenis: 'bahaya'
+    }) : confirm('Hapus proyek "' + nama + '"?');
+    
+    if (!lanjut) return;
+    
+    try {
+        const r = await fetch('/admin/proyek/' + id, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-TOKEN': token,
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+        const d = await r.json();
+        if (!r.ok) {
+            window.InaaiToast && window.InaaiToast.galat(d.message || 'Gagal menghapus proyek.');
+            return;
+        }
+        window.InaaiToast && window.InaaiToast.sukses(d.pesan || 'Proyek berhasil dihapus.');
+        setTimeout(() => location.reload(), 650);
+    } catch (err) {
+        window.InaaiToast && window.InaaiToast.galat('Koneksi bermasalah: ' + err.message);
+    }
+}
+
+document.querySelectorAll('[data-hapus-proyek]').forEach(b => {
+    b.addEventListener('click', () => hapusProyek(b.dataset.hapusProyek, b.dataset.nama || ''));
+});
 })();
 </script>
 @endpush
@@ -101,6 +138,10 @@ Reset
 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.87 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.87 0"/><circle cx="12" cy="12" r="3"/></svg>
 View
 </a>
+<button type="button" class="btn btn-sm" data-hapus-proyek="{{ $p['id'] }}" data-nama="{{ $p['nama'] }}">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+Hapus
+</button>
 </td>
 </tr>
 @endforeach

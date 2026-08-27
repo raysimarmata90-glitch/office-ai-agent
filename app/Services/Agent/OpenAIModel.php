@@ -146,6 +146,30 @@ class OpenAIModel implements ModelInterface
             }
         }
 
+        // Add Planning context (proyek baku + task assigned)
+        $planningBits = [];
+        if (! empty($context['project_name'])) {
+            $planningBits[] = 'Proyek terpilih: ' . $context['project_name'];
+        }
+        if (! empty($context['planned_tasks'])) {
+            $planningBits[] = 'Task Planning yang di-assign (WAJIB dipakai untuk current_task): '
+                . implode(' | ', $context['planned_tasks']);
+        }
+        if (! empty($context['planned_projects'])) {
+            $planningBits[] = 'Daftar proyek baku Planning: ' . implode(' | ', $context['planned_projects']);
+        }
+        foreach (['objective', 'expectation', 'deliverable', 'current_task'] as $field) {
+            if (! empty($context[$field])) {
+                $planningBits[] = ucfirst($field) . ': ' . $context[$field];
+            }
+        }
+        if ($planningBits !== []) {
+            $messages[] = [
+                'role' => 'system',
+                'content' => "Konteks Planning saat ini:\n- " . implode("\n- ", $planningBits),
+            ];
+        }
+
         // Add retrieved context as system message
         if (isset($context['retrieved_context']) && !empty($context['retrieved_context'])) {
             $contextStr = $this->formatRetrievedContext($context['retrieved_context']);

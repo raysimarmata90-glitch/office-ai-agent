@@ -1,0 +1,14 @@
+# Railway Ignore File
+# Specify files that should NOT be uploaded to Railway
+
+# Don't ignore public assets - they are needed!
+!public/js/
+!public/img/
+
+# Ignore these
+.git/
+node_modules/
+.env
+.env.local
+tests/
+*.log

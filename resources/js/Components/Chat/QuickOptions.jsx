@@ -24,9 +24,9 @@ export default function QuickOptions({
     const [customValue, setCustomValue] = useState('');
     const [options, setOptions] = useState([]);
     const structuredQuestionTypes = [
-        'objective', 'expectation', 'current_task', 'task_detail',
-        'task_challenge', 'estimation', 'priority', 'other_project', 'confirmation',
-        'project_selection'
+        'objective', 'expectation', 'deliverable', 'current_task', 'task_detail',
+        'progress', 'task_challenge', 'estimation', 'priority', 'other_project',
+        'confirmation', 'project_selection', 'project_list'
     ];
 
     useEffect(() => {
@@ -40,9 +40,9 @@ export default function QuickOptions({
     const getOptionsForQuestion = (content) => {
         const q = content.toLowerCase();
 
-        // Pertanyaan pembuka proyek
-        if (/proyek.*(kerjakan|dikerjakan).*hari ini/.test(q)) {
-            return ['Proyek Baru', 'Lanjut Proyek Sebelumnya'];
+        // Pertanyaan pembuka proyek — daftar dari Planning
+        if (/proyek.*(kerjakan|dikerjakan|planning|daftar)/.test(q)) {
+            return [];
         }
 
         // Jenis proposal

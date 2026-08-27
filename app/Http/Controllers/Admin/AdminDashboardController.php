@@ -56,7 +56,7 @@ class AdminDashboardController extends Controller
             'nama' => $p->nama,
             'warna' => $p->warna,
             'tugas' => $p->tasks->count(),
-            'pct' => TaskMetrics::ringkasStatus($p->tasks)['pct'],
+            'pct' => TaskMetrics::averageProgressPercentage($p->tasks),
             'kontributor' => $p->tasks->pluck('user_id')->unique()->count(),
             'segmen' => TaskMetrics::segmen($p->tasks),
         ])->sortByDesc('tugas')->values();
@@ -69,7 +69,7 @@ class AdminDashboardController extends Controller
                 'inisial' => $u?->inisial() ?? '?',
                 'warna' => $u ? $u->warnaAvatar() : ['bg' => '#e8edf4', 'text' => '#475569'],
                 'tugas' => $items->count(),
-                'pct' => TaskMetrics::ringkasStatus($items)['pct'],
+                'pct' => TaskMetrics::averageProgressPercentage($items),
                 'proyek' => $items->pluck('project_id')->unique()->count(),
                 'segmen' => TaskMetrics::segmen($items),
             ];
@@ -483,20 +483,31 @@ class AdminDashboardController extends Controller
         return response()->streamDownload(function () use ($tasks) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['No', 'Judul', 'Proyek', 'Pemilik', 'Reviewer', 'Prioritas', 'Status', 'Mulai', 'Selesai', 'Dibuat']);
+            
+            // Header kolom sesuai format yang diminta
+            fputcsv($out, [
+                'No',
+                'Client or R&D',
+                'KD-ID',
+                'Key Deliverables',
+                'Status',
+                'PIC',
+                'Progress Update',
+                'Next steps',
+                'Due Date'
+            ]);
 
             foreach ($tasks as $i => $t) {
                 fputcsv($out, [
-                    $i + 1,
-                    $t->judul,
-                    $t->project?->nama ?? '-',
-                    $t->user?->name ?? '-',
-                    $t->reviewer?->name ?? '-',
-                    $t->prioritas,
-                    $t->statusLabel(),
-                    $t->mulai?->format('d/m/y') ?? '-',
-                    $t->selesai?->format('d/m/y') ?? '-',
-                    $t->created_at?->format('d/m/y, H:i') ?? '-',
+                    $i + 1,                                          // No
+                    $t->project?->nama ?? '-',                       // Client or R&D (Nama Proyek)
+                    'KD-' . str_pad($t->id, 4, '0', STR_PAD_LEFT), // KD-ID (KD-0001, KD-0002, dll)
+                    $t->deliverable ?? '-',                          // Key Deliverables (dari chat)
+                    $t->statusLabel(),                               // Status
+                    $t->user?->name ?? '-',                          // PIC (Pemilik task)
+                    $t->progress_text ?? '-',                        // Progress Update (dari chat)
+                    $t->detail ?? '-',                               // Next steps (detail dari chat)
+                    $t->selesai?->format('d/m/Y') ?? '-',           // Due Date
                 ]);
             }
 

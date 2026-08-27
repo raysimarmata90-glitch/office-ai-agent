@@ -95,6 +95,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/proyek', [ProjectAdminController::class, 'index'])->name('proyek.index');
     Route::post('/proyek', [ProjectAdminController::class, 'store'])->name('proyek.store');
     Route::get('/proyek/{project}', [ProjectAdminController::class, 'show'])->name('proyek.show');
+    Route::delete('/proyek/{project}', [ProjectAdminController::class, 'destroy'])->name('proyek.destroy');
 
     // Assign tugas ke pegawai
     Route::post('/tugas/assign', [ProjectAdminController::class, 'assign'])->name('tugas.assign');

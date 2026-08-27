@@ -23,25 +23,83 @@ class ContextEngine
         // 1. Add conversation history
         $enhancedContext['conversation_history'] = $this->formatConversationHistory($conversationHistory);
 
-        // 2. Check if user is continuing a previous project
+        // 2. Planning context: proyek baku + task yang di-assign
+        $enhancedContext['planned_projects'] = $baseContext['planned_projects']
+            ?? $this->getPlannedProjects($baseContext['user_id'] ?? null);
+        $enhancedContext['planned_tasks'] = $baseContext['planned_tasks']
+            ?? $this->getPlannedTasks(
+                $baseContext['user_id'] ?? null,
+                $baseContext['project_name'] ?? null
+            );
+
+        // 3. Check if user is continuing a previous project
         $enhancedContext['is_continuing_project'] = $this->isUserContinuingProject($conversationHistory);
 
-        // 3. Retrieve relevant context from database (RAG)
+        // 4. Retrieve relevant context from database (RAG)
         $enhancedContext['retrieved_context'] = $this->retrieveRelevantContext($userInput, $baseContext);
 
-        // 4. Add user profile context
+        // 5. Add user profile context
         $enhancedContext['user_context'] = $this->getUserContext($baseContext['user_id'] ?? null);
 
-        // 5. Calculate relevance score
+        // 6. Calculate relevance score
         $enhancedContext['relevance_score'] = $this->calculateRelevanceScore(
             $userInput,
             $enhancedContext['retrieved_context']
         );
 
-        // 6. Prune context if too large
+        // 7. Prune context if too large
         $enhancedContext = $this->pruneContext($enhancedContext);
 
         return $enhancedContext;
+    }
+
+    /**
+     * Daftar proyek baku Planning (yang di-assign user dulu).
+     */
+    protected function getPlannedProjects(?int $userId): array
+    {
+        if (! $userId) {
+            return [];
+        }
+
+        try {
+            $milikSaya = DB::table('projects')
+                ->join('tasks', 'tasks.project_id', '=', 'projects.id')
+                ->where('tasks.user_id', $userId)
+                ->orderBy('projects.nama')
+                ->distinct()
+                ->pluck('projects.nama')
+                ->all();
+
+            $semua = DB::table('projects')->orderBy('nama')->pluck('nama')->all();
+
+            return array_values(array_unique(array_merge($milikSaya, $semua)));
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Task Planning user untuk proyek terpilih (belum done).
+     */
+    protected function getPlannedTasks(?int $userId, ?string $projectName): array
+    {
+        if (! $userId || ! $projectName) {
+            return [];
+        }
+
+        try {
+            return DB::table('tasks')
+                ->join('projects', 'projects.id', '=', 'tasks.project_id')
+                ->where('tasks.user_id', $userId)
+                ->where('projects.nama', $projectName)
+                ->where('tasks.status', '!=', 'done')
+                ->orderBy('tasks.judul')
+                ->pluck('tasks.judul')
+                ->all();
+        } catch (\Exception $e) {
+            return [];
+        }
     }
     
     /**

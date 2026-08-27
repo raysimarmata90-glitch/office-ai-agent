@@ -37,7 +37,11 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&drw.classList.conta
 
 function baris(label,isi){return '<div class="drw-row"><div class="drw-k">'+esc(label)+'</div><div class="drw-v">'+isi+'</div></div>'}
 
-async function buka(id){
+// Mode drawer: 'full' untuk halaman Tugas (lengkap + aksi), 'report' untuk halaman Laporan (ringkas)
+let drawerMode = 'full'; // default
+
+async function buka(id, mode){
+drawerMode = mode || 'full';
 body.innerHTML='<div class="empty">Memuat detail…</div>';
 foot.innerHTML='';
 drw.classList.add('open');
@@ -52,15 +56,32 @@ d=await r.json();
 judul.textContent=d.judul||'Detail Tugas';
 const w=d.status_warna||{};
 let html='';
+
+// Informasi dasar (selalu tampil)
 html+=baris('Status','<span class="badge" style="background:'+esc(w.bg)+';color:'+esc(w.text)+'">'+esc(d.status_label)+'</span>');
 html+=baris('Proyek','<span style="display:inline-flex;align-items:center;gap:7px"><i style="width:8px;height:8px;border-radius:2px;background:'+esc(d.warna||'#f55d14')+';display:block"></i>'+esc(d.proyek||'–')+'</span>');
 html+=baris('Prioritas',esc(d.prioritas||'–'));
 html+=baris('Periode',esc((d.mulai||'–')+' – '+(d.selesai||'–')));
 html+=baris('Assign ke',esc(d.pemilik||'–'));
 html+=baris('Reviewer',esc(d.reviewer||'–'));
+
+// Mode FULL (Halaman Tugas): Tampilan minimal untuk manajemen - hanya info dasar + timestamp
+if(drawerMode==='full'){
 html+=baris('Dibuat',esc(d.dibuat||'–'));
 html+=baris('Diubah',esc(d.diubah||'–'));
-if(d.deskripsi)html+=baris('Deskripsi','<span style="white-space:pre-wrap">'+esc(d.deskripsi)+'</span>');
+// Tidak tampilkan detail chat user di mode full (untuk manajemen task saja)
+}
+
+// Mode REPORT (Halaman Laporan): Tampilan lengkap untuk reporting - info dasar + detail chat user
+if(drawerMode==='report'){
+// Tampilkan informasi lengkap dari chat user untuk keperluan reporting
+if(d.objektif)html+=baris('Objektif','<span style="white-space:pre-wrap">'+esc(d.objektif)+'</span>');
+if(d.harapan)html+=baris('Harapan','<span style="white-space:pre-wrap">'+esc(d.harapan)+'</span>');
+if(d.deliverable)html+=baris('Hasil kerja (deliverable)','<span style="white-space:pre-wrap">'+esc(d.deliverable)+'</span>');
+if(d.detail)html+=baris('Detail','<span style="white-space:pre-wrap">'+esc(d.detail)+'</span>');
+if(d.progress_text)html+=baris('Progress','<span style="white-space:pre-wrap">'+esc(d.progress_text)+'</span>');
+if(d.estimasi)html+=baris('Estimasi','<span style="white-space:pre-wrap">'+esc(d.estimasi)+'</span>');
+}
 
 const ev=d.evidences||[];
 html+='<div class="drw-sec">Evidence <span class="drw-n">'+ev.length+'</span></div>';
@@ -83,14 +104,31 @@ body.innerHTML=html;
 const IKO_X='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const IKO_SAMPAH='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 const IKO_BUKA='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg>';
+const IKO_EDIT='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
+// Mode FULL: Tampilkan tombol Edit & Hapus untuk manajemen
+if(drawerMode==='full'){
 foot.innerHTML=
 (d.boleh_edit?'<button type="button" class="btn btn-danger" data-drwt-hapus="'+d.id+'" data-judul="'+esc(d.judul)+'">'+IKO_SAMPAH+'Hapus</button>':'')+
 '<span class="drw-foot-sela"></span>'+
 '<button type="button" class="btn" data-drwt-close>'+IKO_X+'Tutup</button>'+
+(d.boleh_edit?'<button type="button" class="btn" data-drwt-edit="'+d.id+'">'+IKO_EDIT+'Edit</button>':'')+
 '<a class="btn btn-primary" href="/admin/proyek/'+esc(d.form.project_id)+'">'+IKO_BUKA+'Buka Proyek</a>';
+}
+
+// Mode REPORT: Hanya tombol Tutup & Buka Proyek (tidak ada edit/hapus)
+if(drawerMode==='report'){
+foot.innerHTML=
+'<span class="drw-foot-sela"></span>'+
+'<button type="button" class="btn" data-drwt-close>'+IKO_X+'Tutup</button>'+
+'<a class="btn btn-primary" href="/admin/proyek/'+esc(d.form.project_id)+'">'+IKO_BUKA+'Buka Proyek</a>';
+}
+
 foot.querySelectorAll('[data-drwt-close]').forEach(b=>b.addEventListener('click',tutup));
 const bh=foot.querySelector('[data-drwt-hapus]');
 if(bh)bh.addEventListener('click',()=>{tutup();hapus(d.id,d.judul||'')});
+const be=foot.querySelector('[data-drwt-edit]');
+if(be)be.addEventListener('click',()=>{tutup();if(window.InaaiFormTugas)window.InaaiFormTugas.ubah(d.id)});
 }
 
 async function hapus(id,nama){

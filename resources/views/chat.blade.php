@@ -102,10 +102,12 @@ Hapus
 @endpush
 
 @php($pesanAiTerakhir = $conversation?->messages->where('sender_type', 'ai')->last())
-@php($metaAwal = $pesanAiTerakhir?->metadata ?? \App\Http\Controllers\ChatController::metadataAwal())
+@php($metaAwal = $metaAwal ?? ($pesanAiTerakhir?->metadata ?? \App\Http\Controllers\ChatController::metadataAwal(auth()->user())))
+@php($pertanyaanAwal = $pertanyaanAwal ?? \App\Http\Controllers\ChatController::PERTANYAAN_AWAL)
 @php($opsiAwal = [
     'options' => ($metaAwal['has_options'] ?? false) ? ($metaAwal['options'] ?? []) : [],
     'question_type' => $metaAwal['question_type'] ?? null,
+    'allow_custom' => $metaAwal['allow_custom'] ?? false,
 ])
 @section('content')
 <div class="chat-wrap">
@@ -134,7 +136,7 @@ INaAI Agent
 <span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>
 INaAI Agent
 </div>
-<div class="bub">{{ \App\Http\Controllers\ChatController::PERTANYAAN_AWAL }}<div class="bub-t">{{ now()->format('H:i') }}</div></div>
+<div class="bub">{{ $pertanyaanAwal }}<div class="bub-t">{{ now()->format('H:i') }}</div></div>
 </div>
 </div>
 @endif
@@ -248,10 +250,10 @@ document.querySelectorAll('.msgs .opts').forEach(function (el) { el.remove(); })
 
 /**
  * Render pilihan cepat dari server tepat di bawah pertanyaan AI terakhir,
- * lalu sembunyikan kotak tulis. "Jawaban lain" adalah jalan keluarnya:
- * server memang mengharapkan klien yang menyediakan opsi bebas ini.
+ * lalu sembunyikan kotak tulis. "Jawaban lain" hanya jika allowCustom true
+ * (proyek/task Planning tidak boleh diisi bebas).
  */
-function showOptions(options, questionType) {
+function showOptions(options, questionType, allowCustom) {
 hapusOpsi();
 
 if (!conversationIsActive()) { tampilComposer(false); return; }
@@ -261,6 +263,11 @@ return String(o).trim() !== '' && String(o).trim().toLowerCase() !== 'something 
 });
 
 if (daftar.length === 0) { tampilComposer(true); return; }
+
+const ketat = questionType === 'project_list'
+    || questionType === 'project_selection'
+    || questionType === 'current_task'
+    || allowCustom === false;
 
 const pesanAi = document.querySelectorAll('.msgs [data-ai] .msg-in');
 const induk = pesanAi[pesanAi.length - 1];
@@ -272,9 +279,9 @@ kotak.dataset.questionType = questionType || '';
 kotak.innerHTML = daftar.map(function (o, i) {
 return '<button type="button" class="opt" data-value="' + escapeHtml(o) + '">' +
 '<span class="opt-n">' + (i + 1) + '</span><span>' + escapeHtml(o) + '</span></button>';
-}).join('') +
+}).join('') + (ketat ? '' :
 '<button type="button" class="opt other" data-lain>' +
-'<span class="opt-n">+</span><span>Jawaban lain</span></button>';
+'<span class="opt-n">+</span><span>Jawaban lain</span></button>');
 induk.appendChild(kotak);
 
 tampilComposer(false);
@@ -291,8 +298,6 @@ kotak.querySelectorAll('.opt').forEach(function (b) {
 b.addEventListener('click', function () {
 if (b.hasAttribute('data-lain')) {
 if (kotak.classList.contains('bebas')) return;
-// Pilihan tetap terlihat (diredupkan), kotak tulis dibuka, dan
-// disediakan jalan kembali lewat "Batalkan pilihan".
 kotak.classList.add('bebas');
 var batal = document.createElement('button');
 batal.type = 'button';
@@ -310,7 +315,7 @@ submitMessage(b.getAttribute('data-value'));
 });
 }
 
-function addMessage(content, isUser, hasOptions, options, questionType) {
+function addMessage(content, isUser, hasOptions, options, questionType, allowCustom) {
 const d = document.createElement('div');
 d.className = 'msg ' + (isUser ? 'me' : 'ai');
 const now = new Date();
@@ -320,7 +325,7 @@ d.innerHTML = '<div class="msg-in">' +
 (isUser ? '' : '<div class="ai-head"><span class="ai-av"><img src="{{ asset('img/logo-inaai.webp') }}" alt="INaAI"></span>INaAI Agent</div>') +
 '<div class="bub">' + escapeHtml(content) + '<div class="bub-t">' + t + '</div></div></div>';
 messageList.appendChild(d);
-if (!isUser) showOptions(hasOptions ? (options || []) : [], questionType);
+if (!isUser) showOptions(hasOptions ? (options || []) : [], questionType, allowCustom);
 scrollToBottom();
 }
 
@@ -391,7 +396,8 @@ data.ai_response.content,
 false,
 !!data.ai_response.has_options,
 data.ai_response.options || [],
-data.ai_response.question_type || null
+data.ai_response.question_type || null,
+data.ai_response.allow_custom
 );
 if (data.selesai) { rayakan(); return; }
 } else {
@@ -523,7 +529,7 @@ rec.start();
 }
 
 /* Pilihan untuk pesan AI terakhir yang dirender server. */
-showOptions(opsiAwal.options || [], opsiAwal.question_type || null);
+showOptions(opsiAwal.options || [], opsiAwal.question_type || null, opsiAwal.allow_custom);
 // Blok pilihan menambah tinggi composer, jadi posisi gulir perlu disetel ulang.
 scrollToBottom();
 </script>

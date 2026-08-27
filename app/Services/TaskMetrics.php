@@ -27,6 +27,43 @@ class TaskMetrics
     }
 
     /**
+     * Hitung rata-rata progress_percentage dari task collection.
+     * Task dengan status DONE dianggap 100%, task lainnya diambil dari progress_percentage.
+     * Jika progress_percentage null, gunakan fallback berdasarkan status.
+     * 
+     * @param Collection $tasks
+     * @return int Progress rata-rata dalam persen (0-100)
+     */
+    public static function averageProgressPercentage(Collection $tasks): int
+    {
+        if ($tasks->isEmpty()) {
+            return 0;
+        }
+
+        $totalProgress = $tasks->sum(function ($task) {
+            // Task selesai = 100%
+            if ($task->status === Task::STATUS_DONE) {
+                return 100;
+            }
+
+            // Gunakan progress_percentage jika ada
+            if ($task->progress_percentage !== null) {
+                return min(100, max(0, $task->progress_percentage));
+            }
+
+            // Fallback berdasarkan status jika progress_percentage null
+            return match ($task->status) {
+                Task::STATUS_IN_PROGRESS, Task::STATUS_REVIEW => 50, // Estimasi sedang dikerjakan
+                Task::STATUS_BLOCKED => 30, // Estimasi terblokir tapi ada progress
+                Task::STATUS_TO_DO => 0, // Belum dimulai
+                default => 0,
+            };
+        });
+
+        return (int) round($totalProgress / $tasks->count());
+    }
+
+    /**
      * Komposisi status satu kumpulan tugas: seluruh status dijumlahkan menjadi
      * 100% dari total kumpulan itu sendiri — bukan total global — sehingga sisa
      * abu-abu hanya muncul kalau memang belum ada tugas. Urutannya dimulai dari

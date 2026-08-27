@@ -103,7 +103,7 @@ if(inCari)inCari.value='';
 hitungRelasi();terapkan();
 });
 
-document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat)));
+document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat,'report')));
 document.querySelectorAll('[data-hapus]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.hapus(b.dataset.hapus,b.dataset.judul||'')));
 
 hitungRelasi();terapkan();

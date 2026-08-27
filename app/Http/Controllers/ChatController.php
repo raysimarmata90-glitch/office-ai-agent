@@ -9,41 +9,90 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Models\QuestionTemplate;
 use App\Models\User;
+use App\Models\WorkActivity;
 use App\Services\Agent\AgentOrchestrator;
 use App\Services\Agent\OptionGenerator;
+use App\Services\WorkActivityService;
 use Illuminate\Http\Request;
 
 class ChatController extends Controller
 {
     protected AgentOrchestrator $agent;
     protected OptionGenerator $optionGenerator;
+    protected WorkActivityService $workActivityService;
 
-    public function __construct(AgentOrchestrator $agent, OptionGenerator $optionGenerator)
-    {
+    public function __construct(
+        AgentOrchestrator $agent, 
+        OptionGenerator $optionGenerator,
+        WorkActivityService $workActivityService
+    ) {
         $this->agent = $agent;
         $this->optionGenerator = $optionGenerator;
+        $this->workActivityService = $workActivityService;
     }
 
     /** Jumlah riwayat yang dimuat per permintaan pada panel riwayat. */
     public const RIWAYAT_PER_HALAMAN = 50;
 
-    /** Pesan pembuka agent — pertanyaan pertama selalu menanyakan proyek yang dikerjakan. */
-    public const PERTANYAAN_AWAL = 'Halo! Senang bertemu dengan Anda. Apa proyek yang sedang Anda kerjakan hari ini?';
+    /** Pesan pembuka agent — pilihan dari daftar proyek baku Planning. */
+    public const PERTANYAAN_AWAL = 'Halo! Senang bertemu dengan Anda. Pilih proyek dari daftar Planning yang sedang Anda kerjakan hari ini:';
 
-    public const PROMPT_AWAL = 'Sapa user dengan hangat, lalu gali proyek, objektif, harapan, task, dan estimasi durasi pengerjaan.';
+    public const PERTANYAAN_TANPA_PROYEK = 'Halo! Senang bertemu dengan Anda. Belum ada proyek baku di Planning. Minta admin menambahkan proyek dan assign task terlebih dahulu, lalu mulai chat lagi.';
+
+    public const PROMPT_AWAL = 'Sapa user, minta pilih proyek baku dari Planning, lalu gali objektif as-is, harapan, deliverable, task sesuai planning, detail+progress, dan estimasi durasi.';
 
     /**
-     * Metadata pesan pembuka: pilihan cepat langkah pertama dikirim dari server
-     * (lihat OptionGenerator) supaya klien tidak perlu menebak sendiri.
+     * Metadata pesan pembuka: dropdown proyek baku + proyek yang dikerjakan user.
      */
-    public static function metadataAwal(): array
+    public static function metadataAwal(?User $user = null): array
     {
+        $opsi = $user ? self::opsiProyekPlanning($user) : [];
+
         return [
             'system_prompt' => self::PROMPT_AWAL,
-            'has_options' => true,
-            'options' => ['Proyek Baru', 'Lanjut Proyek Sebelumnya'],
-            'question_type' => 'project_selection',
+            'has_options' => $opsi !== [],
+            'options' => $opsi,
+            'question_type' => 'project_list',
+            'allow_custom' => false,
         ];
+    }
+
+    /**
+     * Proyek yang di-assign ke user dulu, lalu sisa proyek baku Planning.
+     *
+     * @return list<string>
+     */
+    public static function opsiProyekPlanning(User $user): array
+    {
+        $milikSaya = Project::whereHas('tasks', fn ($q) => $q->where('user_id', $user->id))
+            ->orderBy('nama')
+            ->pluck('nama')
+            ->all();
+
+        $semua = Project::orderBy('nama')->pluck('nama')->all();
+
+        return array_values(array_unique(array_merge($milikSaya, $semua)));
+    }
+
+    /**
+     * Task Planning user untuk satu proyek (belum done).
+     *
+     * @return list<string>
+     */
+    public static function opsiTaskPlanning(User $user, string $projectName): array
+    {
+        $project = Project::where('nama', $projectName)->first();
+        if ($project === null) {
+            return [];
+        }
+
+        return Task::where('project_id', $project->id)
+            ->where('user_id', $user->id)
+            ->where('status', '!=', Task::STATUS_DONE)
+            ->orderByRaw("CASE prioritas WHEN 'Tinggi' THEN 1 WHEN 'Sedang' THEN 2 ELSE 3 END")
+            ->orderBy('judul')
+            ->pluck('judul')
+            ->all();
     }
 
     /**
@@ -51,6 +100,11 @@ class ChatController extends Controller
      */
     public static function percakapanBaru(User $user): Conversation
     {
+        $meta = self::metadataAwal($user);
+        $content = ($meta['options'] ?? []) === []
+            ? self::PERTANYAAN_TANPA_PROYEK
+            : self::PERTANYAAN_AWAL;
+
         $conversation = Conversation::create([
             'user_id' => $user->id,
             'department_id' => $user->department_id,
@@ -62,9 +116,9 @@ class ChatController extends Controller
         Message::create([
             'conversation_id' => $conversation->id,
             'sender_type' => 'ai',
-            'content' => self::PERTANYAAN_AWAL,
+            'content' => $content,
             'step_number' => 1,
-            'metadata' => self::metadataAwal(),
+            'metadata' => $meta,
         ]);
 
         return $conversation;
@@ -76,7 +130,17 @@ class ChatController extends Controller
      */
     public function baru()
     {
-        return view('chat', ['conversation' => null]);
+        $user = request()->user();
+        $metaAwal = self::metadataAwal($user);
+        $pertanyaanAwal = ($metaAwal['options'] ?? []) === []
+            ? self::PERTANYAAN_TANPA_PROYEK
+            : self::PERTANYAAN_AWAL;
+
+        return view('chat', [
+            'conversation' => null,
+            'metaAwal' => $metaAwal,
+            'pertanyaanAwal' => $pertanyaanAwal,
+        ]);
     }
 
     /**
@@ -156,13 +220,17 @@ class ChatController extends Controller
             ->first();
 
         if ($firstQuestion) {
-            // Create first AI message with options
+            $meta = self::metadataAwal(auth()->user());
+            $content = ($meta['options'] ?? []) === []
+                ? self::PERTANYAAN_TANPA_PROYEK
+                : self::PERTANYAAN_AWAL;
+
             Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'ai',
-                'content' => self::PERTANYAAN_AWAL,
+                'content' => $content,
                 'step_number' => 1,
-                'metadata' => self::metadataAwal(),
+                'metadata' => $meta,
             ]);
         }
 
@@ -196,7 +264,7 @@ class ChatController extends Controller
 
         $previousAiMessage = $conversation->messages()
             ->where('sender_type', 'ai')
-            ->latest()
+            ->orderByDesc('id')
             ->first();
 
         // Validate user answer BEFORE saving the message
@@ -235,6 +303,7 @@ class ChatController extends Controller
                     'has_options' => (bool) ($previousAiMessage?->metadata['has_options'] ?? false),
                     'options' => $previousAiMessage?->metadata['options'] ?? [],
                     'question_type' => $previousAiMessage?->metadata['question_type'] ?? 'text_input',
+                    'allow_custom' => $previousAiMessage?->metadata['allow_custom'] ?? true,
                 ],
             ]);
         }
@@ -247,10 +316,15 @@ class ChatController extends Controller
             'step_number' => $conversation->current_step,
         ]);
 
-        // Update conversation title with first user message (smart title)
+        // ✨ NEW: Process user answer dengan NLU dan update WorkActivity
+        $nluResult = $this->workActivityService->processUserAnswer(
+            $conversation,
+            $userMessage,
+            $previousAiMessage
+        );
+
+        // Judul percakapan = nama proyek dari Planning saat dipilih.
         if ($conversation->current_step === 1 && $conversation->messages()->where('sender_type', 'user')->count() === 1) {
-            // "Proyek Baru"/"Lanjut Proyek Sebelumnya" hanya label pilihan langkah
-            // pertama, bukan nama proyek — judul menunggu jawaban berikutnya.
             if (! $this->labelPilihanAwal($message)) {
                 $conversation->update(['title' => $this->generateConversationTitle($message)]);
             }
@@ -259,31 +333,27 @@ class ChatController extends Controller
             $conversation->update(['title' => $this->generateConversationTitle($message)]);
         }
 
-        // Check if user selected "Lanjut Proyek Sebelumnya"
-        if (strtolower($message) === 'lanjut proyek sebelumnya') {
-            return $this->handleContinuePreviousProject($conversation);
-        }
+        $prevType = $previousAiMessage?->metadata['question_type'] ?? null;
 
-        // Check if user selected "Proyek Baru"
-        if (strtolower($message) === 'proyek baru') {
-            return $this->handleNewProject($conversation);
-        }
-
-        // Check if previous message was showing project list (after "Lanjut Proyek Sebelumnya")
-        if ($previousAiMessage &&
-            isset($previousAiMessage->metadata['question_type']) &&
-            $previousAiMessage->metadata['question_type'] === 'project_list') {
-            // User selected a project from list - ask for objective and expectation
+        // Pilih proyek dari daftar Planning (pertanyaan pembuka atau daftar ulang)
+        if (in_array($prevType, ['project_list', 'project_selection'], true)) {
             return $this->handleSelectedPreviousProject($conversation, $message);
         }
 
-        // Check if previous message was asking for project name (after "Proyek Baru")
-        if ($previousAiMessage &&
-            isset($previousAiMessage->metadata['expects']) &&
-            $previousAiMessage->metadata['expects'] === 'project_name') {
-            // User just entered project name
+        // Proyek lain: tampilkan lagi daftar proyek baku
+        if ($prevType === 'other_project' && preg_match('/^(ya|iya)/iu', trim($message)) === 1) {
+            return $this->tampilkanDaftarProyek($conversation);
+        }
+
+        // Kompatibilitas sesi lama yang masih minta nama proyek bebas
+        if (($previousAiMessage?->metadata['expects'] ?? null) === 'project_name') {
             return $this->handleProjectName($conversation, $message);
         }
+
+        $projectName = $this->extractProjectNameFromHistory($conversation);
+        $plannedTasks = $projectName
+            ? self::opsiTaskPlanning(auth()->user(), $projectName)
+            : [];
 
         // Build context for agent
         $context = [
@@ -293,8 +363,13 @@ class ChatController extends Controller
             'department_code' => $conversation->department->code,
             'current_step' => $conversation->current_step,
             'conversation_history' => $this->conversationHistory($conversation, $userMessage->id),
-            'project_name' => $this->extractProjectNameFromHistory($conversation),
-            'objective' => $this->extractFieldFromHistory($conversation, 'objective'),
+            'project_name' => $projectName,
+            'objective' => $this->extractAnswerForType($conversation, 'objective'),
+            'expectation' => $this->extractAnswerForType($conversation, 'expectation'),
+            'deliverable' => $this->extractAnswerForType($conversation, 'deliverable'),
+            'current_task' => $this->extractAnswerForType($conversation, 'current_task'),
+            'planned_tasks' => $plannedTasks,
+            'planned_projects' => self::opsiProyekPlanning(auth()->user()),
         ];
 
         // Process with Agent Orchestrator
@@ -307,12 +382,14 @@ class ChatController extends Controller
             $parsedResponse = $this->optionGenerator->parseResponse($responseContent);
             $parsedResponse = $this->ensureStructuredOptions($parsedResponse, $responseContent, [
                 'department_code' => $conversation->department->code,
-                'project_name' => $this->extractProjectNameFromHistory($conversation),
-                'objective' => $this->extractFieldFromHistory($conversation, 'objective'),
-                'current_task' => $this->extractFieldFromHistory($conversation, 'current_task'),
+                'project_name' => $projectName,
+                'objective' => $context['objective'],
+                'current_task' => $context['current_task'],
+                'planned_tasks' => $plannedTasks,
                 'user_input' => $message,
                 'conversation_id' => $conversation->id,
             ]);
+            $parsedResponse = $this->alignOptionsWithPlanning($parsedResponse, $plannedTasks);
 
             if ($this->isNoMoreWork($message)) {
                 $projects = $this->extractProjectsFromMessages(
@@ -346,6 +423,7 @@ class ChatController extends Controller
                     'has_options' => $parsedResponse['has_options'],
                     'options' => $parsedResponse['options'],
                     'question_type' => $parsedResponse['type'],
+                    'allow_custom' => $parsedResponse['allow_custom'] ?? true,
                 ],
             ]);
 
@@ -398,6 +476,7 @@ class ChatController extends Controller
                     'has_options' => $selesai ? false : $parsedResponse['has_options'],
                     'options' => $selesai ? [] : $parsedResponse['options'],
                     'question_type' => $parsedResponse['type'],
+                    'allow_custom' => $selesai ? false : ($parsedResponse['allow_custom'] ?? true),
                 ],
             ]);
         } else {
@@ -460,38 +539,129 @@ class ChatController extends Controller
     private function validateChatAnswer(string $message, ?Message $previousAiMessage): ?string
     {
         $options = $previousAiMessage?->metadata['options'] ?? [];
+        $questionType = $previousAiMessage?->metadata['question_type'] ?? null;
+        $allowCustom = $previousAiMessage?->metadata['allow_custom'] ?? true;
+        $expects = $previousAiMessage?->metadata['expects'] ?? null;
+        $previousContent = (string) ($previousAiMessage?->content ?? '');
+
+        // Skip validasi jika pertanyaan sebelumnya adalah konfirmasi ringkasan
+        $isConfirmationQuestion = $questionType === 'confirmation'
+            || preg_match('/(catatan ini sudah sesuai|informasi ini sudah tepat|simpan sebagai catatan|apakah catatan ini sudah sesuai)/iu', $previousContent) === 1;
+
+        if ($isConfirmationQuestion) {
+            // Tidak perlu validasi untuk jawaban konfirmasi
+            return null;
+        }
+
+        // Objektif as-is = input bebas; cek dulu sebelum aturan Planning ketat
+        $isObjectiveAsIs = $expects === 'objective_text'
+            || $questionType === 'objective'
+            || preg_match('/objektif as-is|sedang Anda kerjakan pada proyek/iu', $previousContent) === 1;
+
+        if ($isObjectiveAsIs) {
+            if (! $this->isValidFreeTextAnswer($message, 'objective')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang objektif pekerjaan. Apa yang sedang Anda kerjakan pada proyek ini?';
+            }
+
+            return null;
+        }
+
+        // ✨ NEW: Expectation juga input bebas (tidak wajib pilih dari opsi)
+        $isExpectationFreeText = $questionType === 'expectation'
+            || preg_match('/apa yang diharapkan dari anda|diharapkan dari anda pada pekerjaan/iu', $previousContent) === 1;
+
+        if ($isExpectationFreeText) {
+            if (! $this->isValidFreeTextAnswer($message, 'expectation')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang harapan/ekspektasi. Apa ekspektasi Anda terhadap pekerjaan ini?';
+            }
+
+            return null;
+        }
+
+        // ✨ NEW: Deliverable juga input bebas (tidak wajib pilih dari opsi)
+        $isDeliverableFreeText = $questionType === 'deliverable'
+            || preg_match('/hasil kerja.*deliverable|apa hasil kerja yang harus dihasilkan/iu', $previousContent) === 1;
+
+        if ($isDeliverableFreeText) {
+            if (! $this->isValidFreeTextAnswer($message, 'deliverable')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang hasil kerja (deliverable). Apa hasil kerja yang harus dihasilkan dari pekerjaan ini?';
+            }
+
+            return null;
+        }
+
+        // ✨ NEW: Task Detail juga input bebas (tidak wajib pilih dari opsi)
+        $isTaskDetailFreeText = $questionType === 'task_detail'
+            || preg_match('/detail yang dilakukan apa/iu', $previousContent) === 1;
+
+        if ($isTaskDetailFreeText) {
+            if (! $this->isValidFreeTextAnswer($message, 'task_detail')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang detail pekerjaan. Detail yang dilakukan apa?';
+            }
+
+            return null;
+        }
+
+        // ✨ NEW: Progress juga input bebas (tidak wajib pilih dari opsi)
+        $isProgressFreeText = $questionType === 'progress'
+            || preg_match('/progressnya sampai mana/iu', $previousContent) === 1;
+
+        if ($isProgressFreeText) {
+            if (! $this->isValidFreeTextAnswer($message, 'progress')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang progress pekerjaan. Progressnya sampai mana?';
+            }
+
+            return null;
+        }
+
+        // ✨ NEW: Estimation juga input bebas (tidak wajib pilih dari opsi)
+        $isEstimationFreeText = $questionType === 'estimation'
+            || preg_match('/berapa lama pengerjaannya/iu', $previousContent) === 1;
+
+        if ($isEstimationFreeText) {
+            if (! $this->isValidFreeTextAnswer($message, 'estimation')) {
+                return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang estimasi waktu pengerjaan. Berapa lama pengerjaannya?';
+            }
+
+            return null;
+        }
+
         foreach ($options as $option) {
             if (strcasecmp($message, trim((string) $option)) === 0) {
                 return null;
             }
         }
 
-        // Check if this is a project name question
-        $questionType = $previousAiMessage?->metadata['question_type'] ?? null;
-        $expects = $previousAiMessage?->metadata['expects'] ?? null;
-        $previousContent = $previousAiMessage?->content ?? '';
-        
-        // Strict validation for project name
-        if ($expects === 'project_name' || 
-            $questionType === 'text_input' ||
-            stripos($previousContent, 'nama proyek') !== false) {
-            if (!$this->isValidProjectName($message)) {
+        // Proyek/task Planning: wajib pilih dari daftar
+        $ketat = in_array($questionType, ['project_list', 'project_selection'], true)
+            || ($questionType === 'current_task' && $allowCustom === false);
+
+        if ($ketat && $options !== []) {
+            return 'Maaf, silakan pilih dari daftar yang tersedia agar sesuai dengan Planning.';
+        }
+
+        // Strict validation for project name (sesi lama)
+        if ($expects === 'project_name' ||
+            ($questionType === 'text_input' && stripos($previousContent, 'nama proyek') !== false)) {
+            if (! $this->isValidProjectName($message)) {
                 return 'Maaf, saya memerlukan informasi yang lebih jelas dan spesifik. Apa nama proyek Anda?';
             }
+
             return null;
         }
 
-        // Validation for "Something else" options
-        if (in_array('Something else', $options) && !in_array($message, $options)) {
-            if (!$this->isValidFreeTextAnswer($message, $questionType)) {
-                $questionContext = $this->getQuestionContext($questionType);
-                return "Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang {$questionContext}. " 
+        // Validation for "Something else" / jawaban lain
+        if (in_array('Something else', $options, true) && ! in_array($message, $options, true)) {
+            if (! $this->isValidFreeTextAnswer($message, $questionType)) {
+                $questionContext = $this->getQuestionContext($questionType ?? 'text');
+
+                return "Maaf, saya memerlukan informasi yang lebih jelas dan spesifik tentang {$questionContext}. "
                     . ($previousAiMessage?->content ?? 'Silakan jelaskan dengan lebih detail.');
             }
+
             return null;
         }
 
-        // Remove general validation - accept all other inputs
         return null;
     }
 
@@ -613,11 +783,53 @@ class ChatController extends Controller
         $genericWords = ['proyek', 'project', 'sistem', 'system', 'aplikasi', 'app', 'website', 'site', 'data', 'test', 'tes', 'coba', 'baru', 'new'];
         $lowerWords = array_map('mb_strtolower', $words);
         
-        // If first word is generic and second is just a number/short word, reject
+        // If first word is generic and second word exists, check if second word is meaningful
         if (count($words) === 2 && in_array($lowerWords[0], $genericWords)) {
-            if (is_numeric($words[1]) || mb_strlen($words[1]) < 3) {
+            $secondWord = $words[1];
+            
+            // Reject if second word is just a number or too short (< 3 chars)
+            if (is_numeric($secondWord) || mb_strlen($secondWord) < 3) {
                 return false;
             }
+            
+            // Check if second word is meaningful (not random typing)
+            // Accept if it's a proper name/brand (has good vowel ratio, no keyboard patterns)
+            $secondLower = mb_strtolower($secondWord);
+            
+            // Check for keyboard patterns in second word
+            $keyboardPatterns = ['qwerty', 'asdf', 'zxcv', 'qaz', 'wsx', 'edc', 'rfv'];
+            foreach ($keyboardPatterns as $pattern) {
+                if (str_contains($secondLower, $pattern)) {
+                    return false;
+                }
+            }
+            
+            // Check if it's an acronym (all uppercase, 3-6 chars) - accept immediately
+            if (preg_match('/^[A-Z]{3,6}$/', $secondWord)) {
+                return true; // Valid acronyms like "AKR", "BPJS", "IBM", "NASA"
+            }
+            
+            // Check vowel ratio of second word
+            $vowels = preg_match_all('/[aeiouAEIOU]/', $secondWord);
+            $consonants = preg_match_all('/[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]/', $secondWord);
+            $totalLetters = $vowels + $consonants;
+            
+            if ($totalLetters > 0) {
+                $vowelRatio = $vowels / $totalLetters;
+                // Accept if vowel ratio is reasonable (20-60% is acceptable for names)
+                // OR if it's 0-15% but at least 3 chars (could be acronym in mixed case)
+                if (($vowelRatio >= 0.20 && $vowelRatio <= 0.60) || 
+                    ($vowelRatio <= 0.15 && mb_strlen($secondWord) >= 3)) {
+                    return true; // Valid combination like "Proyek Mayora", "Proyek BPJS", "Project Dashboard"
+                }
+            }
+            
+            // If vowel ratio check fails, still accept if word length is reasonable (5+)
+            if (mb_strlen($secondWord) >= 5) {
+                return true;
+            }
+            
+            return false;
         }
 
         // Check for keyboard patterns in the whole name
@@ -638,30 +850,69 @@ class ChatController extends Controller
     }
 
     /**
-     * Validate free text answer for "Something else" option
+     * Validate free text answer for "Something else" / objektif as-is
      */
     private function isValidFreeTextAnswer(string $answer, ?string $questionType): bool
     {
         $answer = trim($answer);
-        
-        // Must be meaningful first
-        if (!$this->isMeaningfulAnswer($answer)) {
+
+        // Special handling untuk estimation, progress, dan task_detail - lebih fleksibel
+        if (in_array($questionType, ['estimation', 'progress', 'task_detail'], true)) {
+            // Minimal 2 karakter (untuk jawaban seperti "2 hari", "50%", "hampir selesai")
+            if (mb_strlen($answer) < 2) {
+                return false;
+            }
+
+            // Tolak jawaban generik yang terlalu pendek
+            $shortGeneric = ['tes', 'test', 'coba', 'ok', 'oke', 'ya', 'tidak'];
+            if (in_array(mb_strtolower($answer), $shortGeneric, true)) {
+                return false;
+            }
+
+            // Tolak keyboard smash
+            if (preg_match('/^(.)\1{4,}$/u', $answer) === 1) {
+                return false;
+            }
+
+            $lower = mb_strtolower($answer);
+            foreach (['qwerty', 'asdfgh', 'zxcvbn'] as $pattern) {
+                if (str_contains($lower, $pattern)) {
+                    return false;
+                }
+            }
+
+            // Terima jawaban yang mengandung angka + kata (misal: "2 hari", "3 minggu", "50%", "75 persen")
+            // Atau jawaban deskriptif minimal 3 karakter
+            return mb_strlen($answer) >= 3;
+        }
+
+        // Validasi default untuk pertanyaan lainnya (objective, expectation, deliverable)
+        if (mb_strlen($answer) < 5) {
             return false;
         }
 
-        // Must have at least 3 words OR 10 characters for free text
-        $wordCount = str_word_count($answer);
-        if ($wordCount < 3 && mb_strlen($answer) < 10) {
+        $shortGeneric = ['tes', 'test', 'coba', 'lain', 'other', 'etc', 'dll', 'lainnya', 'ya', 'tidak', 'ok', 'oke'];
+        if (in_array(mb_strtolower($answer), $shortGeneric, true)) {
             return false;
         }
 
-        // Reject very short generic answers
-        $shortGeneric = ['tes', 'test', 'coba', 'lain', 'other', 'etc', 'dll', 'lainnya'];
-        if (in_array(mb_strtolower($answer), $shortGeneric)) {
+        // Tolak keyboard smash / spam karakter berulang saja
+        if (preg_match('/^(.)\1{4,}$/u', $answer) === 1) {
             return false;
         }
 
-        return true;
+        $lower = mb_strtolower($answer);
+        foreach (['qwerty', 'asdfgh', 'zxcvbn'] as $pattern) {
+            if (str_contains($lower, $pattern)) {
+                return false;
+            }
+        }
+
+        // Minimal 2 kata (Unicode-aware) ATAU >= 12 karakter bermakna
+        $words = preg_split('/\s+/u', $answer, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $meaningfulWords = array_filter($words, fn ($w) => mb_strlen(preg_replace('/[^\p{L}\d]/u', '', $w) ?? '') >= 2);
+
+        return count($meaningfulWords) >= 2 || mb_strlen($answer) >= 12;
     }
 
     /**
@@ -669,13 +920,16 @@ class ChatController extends Controller
      */
     private function getQuestionContext(string $questionType): string
     {
-        return match($questionType) {
-            'objective' => 'objektif proyek',
-            'expectation' => 'harapan proyek',
-            'current_task' => 'task yang dikerjakan',
-            'task_detail' => 'detail task',
+        return match ($questionType) {
+            'objective' => 'objektif pekerjaan',
+            'expectation' => 'harapan dari Anda',
+            'deliverable' => 'hasil kerja (deliverable)',
+            'current_task' => 'task Planning yang dikerjakan',
+            'task_detail' => 'detail dan progress',
+            'progress' => 'progress pekerjaan',
             'task_challenge' => 'kendala yang dihadapi',
             'task_approach' => 'pendekatan task',
+            'estimation' => 'estimasi waktu',
             default => 'jawaban Anda',
         };
     }
@@ -690,18 +944,21 @@ class ChatController extends Controller
             return false;
         }
 
-        if (preg_match('/(.)\1{2,}/u', $message) === 1) {
+        // Hanya tolak spam karakter berulang (aaa, xxx) — bukan kalimat panjang normal
+        if (preg_match('/(.)\1{4,}/u', $message) === 1) {
             return false;
         }
 
         $lowerMessage = mb_strtolower($message);
-        foreach (['qwerty', 'asdf', 'zxcv', 'qaz', 'wsx', 'edc'] as $pattern) {
+        foreach (['qwerty', 'asdfgh', 'zxcvbn'] as $pattern) {
             if (str_contains($lowerMessage, $pattern)) {
                 return false;
             }
         }
 
-        if (mb_strlen($letters) >= 6) {
+        // Rasio unik hanya untuk string PENDEK (deteksi "aaaa"/"ababab"),
+        // jangan terapkan ke kalimat panjang — huruf vokal Indonesia selalu berulang.
+        if (mb_strlen($letters) >= 6 && mb_strlen($letters) <= 24) {
             $uniqueLetters = count(array_unique(mb_str_split(mb_strtolower($letters))));
             if ($uniqueLetters / mb_strlen($letters) < 0.35) {
                 return false;
@@ -713,27 +970,150 @@ class ChatController extends Controller
 
     private function ensureStructuredOptions(array $parsedResponse, string $responseContent, array $context): array
     {
-        if ($parsedResponse['has_options'] && !empty($parsedResponse['options'])) {
-            // Remove "Something else" from all options (frontend will add inline input automatically)
+        $question = mb_strtolower($responseContent);
+        
+        // ✨ PRIORITY: Cek dulu apakah ini pertanyaan konfirmasi ringkasan
+        $isConfirmationQuestion = preg_match(
+            '/catatan ini sudah sesuai|informasi ini sudah tepat|simpan sebagai catatan|apakah catatan ini sudah sesuai/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'confirmation';
+
+        if ($isConfirmationQuestion) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'confirmation',
+                'allow_custom' => true,
+            ];
+        }
+
+        $isObjectiveAsIs = preg_match(
+            '/objektif as-is|sedang Anda kerjakan pada proyek|apa yang sedang Anda kerjakan/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'objective';
+
+        // Objektif as-is selalu input bebas — buang opsi jika AI mengirimkannya
+        if ($isObjectiveAsIs) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'objective',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Expectation juga selalu input bebas — buang opsi jika AI mengirimkannya
+        $isExpectationFreeText = preg_match(
+            '/apa yang diharapkan dari anda|diharapkan dari anda pada pekerjaan/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'expectation';
+
+        if ($isExpectationFreeText) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'expectation',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Deliverable juga selalu input bebas — buang opsi jika AI mengirimkannya
+        $isDeliverableFreeText = preg_match(
+            '/hasil kerja.*deliverable|apa hasil kerja yang harus dihasilkan/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'deliverable';
+
+        if ($isDeliverableFreeText) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'deliverable',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Task Detail juga selalu input bebas — buang opsi jika AI mengirimkannya
+        $isTaskDetailFreeText = preg_match(
+            '/detail yang dilakukan apa(?!.*progress)/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'task_detail';
+
+        if ($isTaskDetailFreeText) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'task_detail',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Progress juga selalu input bebas — buang opsi jika AI mengirimkannya
+        $isProgressFreeText = preg_match(
+            '/progressnya sampai mana/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'progress';
+
+        if ($isProgressFreeText) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'progress',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Estimation juga selalu input bebas — buang opsi jika AI mengirimkannya
+        $isEstimationFreeText = preg_match(
+            '/berapa lama pengerjaannya/iu',
+            $question
+        ) === 1
+            || ($parsedResponse['type'] ?? null) === 'estimation';
+
+        if ($isEstimationFreeText) {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'estimation',
+                'allow_custom' => true,
+            ];
+        }
+
+        if ($parsedResponse['has_options'] && ! empty($parsedResponse['options'])) {
             $parsedResponse['options'] = array_values(array_filter(
                 $parsedResponse['options'],
-                fn($opt) => strcasecmp(trim($opt), 'Something else') !== 0
+                fn ($opt) => strcasecmp(trim($opt), 'Something else') !== 0
             ));
-            
+
             return $parsedResponse;
         }
 
         $question = mb_strtolower($responseContent);
         $type = match (true) {
-            preg_match('/fokus utama|detail pertama|detail task/iu', $question) === 1 => 'task_detail',
+            preg_match('/fokus utama|detail.*progress|progress.*sampai|detail yang dilakukan|detail task/iu', $question) === 1 => 'task_detail',
+            preg_match('/progress|progres|sampai mana|berapa persen/iu', $question) === 1 => 'progress',
+            preg_match('/hasil kerja.*deliverable|deliverable|hasil kerja yang harus|output yang harus/iu', $question) === 1 => 'deliverable',
             preg_match('/kendala|hambatan|masalah yang dihadapi/iu', $question) === 1 => 'task_challenge',
             preg_match('/sudah sesuai|sudah benar|konfirmasi|simpan sebagai catatan/iu', $question) === 1 => 'confirmation',
             preg_match('/prioritas.*pekerjaan|task.*prioritas|proyek.*prioritas/iu', $question) === 1 => 'priority',
             preg_match('/estimasi.*waktu|berapa.*waktu|durasi|berapa lama/iu', $question) === 1 => 'estimation',
             preg_match('/proyek lain/iu', $question) === 1 => 'other_project',
-            preg_match('/objektif utama|tujuan utama/iu', $question) === 1 => 'objective',
-            preg_match('/harapan|hasil yang diinginkan/iu', $question) === 1 => 'expectation',
-            preg_match('/task.*kerjakan|pekerjaan.*kerjakan/iu', $question) === 1 => 'current_task',
+            // Objektif as-is = input bebas, jangan inject opsi
+            preg_match('/objektif as-is|sedang Anda kerjakan pada proyek|apa yang sedang Anda kerjakan/iu', $question) === 1 => 'objective_text',
+            preg_match('/harapan|ekspektasi|diharapkan dari|expected|hasil yang diinginkan/iu', $question) === 1 => 'expectation',
+            preg_match('/task.*kerjakan|pekerjaan.*kerjakan|task planning/iu', $question) === 1 => 'current_task',
             default => null,
         };
 
@@ -741,20 +1121,128 @@ class ChatController extends Controller
             return $parsedResponse;
         }
 
+        // Objektif as-is: paksa tanpa opsi (input teks bebas)
+        if ($type === 'objective_text') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'objective',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Expectation: paksa tanpa opsi (input teks bebas)
+        if ($type === 'expectation') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'expectation',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Deliverable: paksa tanpa opsi (input teks bebas)
+        if ($type === 'deliverable') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'deliverable',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Task Detail: paksa tanpa opsi (input teks bebas)
+        if ($type === 'task_detail') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'task_detail',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Progress: paksa tanpa opsi (input teks bebas)
+        if ($type === 'progress') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'progress',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Estimation: paksa tanpa opsi (input teks bebas)
+        if ($type === 'estimation') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'estimation',
+                'allow_custom' => true,
+            ];
+        }
+
+        // ✨ NEW: Confirmation: tidak perlu validasi ketat, terima jawaban apa saja
+        if ($type === 'confirmation') {
+            return [
+                'has_options' => false,
+                'message' => $parsedResponse['message'] ?? $responseContent,
+                'options' => [],
+                'type' => 'confirmation',
+                'allow_custom' => true,
+            ];
+        }
+
         $options = $this->optionGenerator->generateOptions($type, $context);
-        
-        // Remove "Something else" from generated options (frontend will add inline input)
+
+        // Task wajib dari Planning jika tersedia
+        if ($type === 'current_task' && ! empty($context['planned_tasks'])) {
+            $options = $context['planned_tasks'];
+        }
+
+        // ✨ PENTING: Expectation, Objective, dan Deliverable TIDAK perlu opsi (input bebas)
+        if (in_array($type, ['expectation', 'objective', 'objective_text', 'deliverable'], true)) {
+            $options = [];
+        }
+
         $options = array_values(array_filter(
             $options,
-            fn($opt) => strcasecmp(trim($opt), 'Something else') !== 0
+            fn ($opt) => strcasecmp(trim($opt), 'Something else') !== 0
         ));
 
         return [
-            'has_options' => !empty($options),
+            'has_options' => ! empty($options),
             'message' => $parsedResponse['message'] ?? $responseContent,
             'options' => $options,
             'type' => $type,
+            'allow_custom' => ! in_array($type, ['project_list', 'current_task'], true)
+                || empty($context['planned_tasks']),
         ];
+    }
+
+    /**
+     * Pastikan opsi task selalu dari Planning jika daftar tersedia.
+     */
+    private function alignOptionsWithPlanning(array $parsedResponse, array $plannedTasks): array
+    {
+        $type = $parsedResponse['type'] ?? null;
+
+        if ($type === 'current_task' && $plannedTasks !== []) {
+            $parsedResponse['options'] = $plannedTasks;
+            $parsedResponse['has_options'] = true;
+            $parsedResponse['allow_custom'] = false;
+        }
+
+        if (in_array($type, ['project_list', 'project_selection'], true)) {
+            $parsedResponse['allow_custom'] = false;
+        }
+
+        return $parsedResponse;
     }
 
     private function isActivityConversationComplete(Conversation $conversation): bool
@@ -894,14 +1382,14 @@ class ChatController extends Controller
     }
 
     /**
-     * Hasil percakapan juga dicatat sebagai Task supaya muncul di halaman
-     * "Pekerjaan Saya"; tabel pekerjaan lama tetap diisi untuk laporan admin.
+     * Hasil percakapan dicatat ke Task Planning yang sudah di-assign.
+     * Jika ada task Planning untuk user di proyek ini, update task tersebut;
+     * jika tidak, buat task baru di proyek baku yang dipilih.
      */
     private function simpanKeTugas(Conversation $conversation, string $projectName, string $workDescription): void
     {
         $user = $conversation->user;
 
-        // "Baru"/"Sebelumnya" berasal dari label pilihan, bukan nama proyek sungguhan.
         $generik = ['baru', 'new', 'sebelumnya', 'proyek', 'project', 'tidak disebutkan'];
         if (mb_strlen(trim($projectName)) < 3 || in_array(mb_strtolower(trim($projectName)), $generik, true)) {
             $judulPercakapan = trim((string) $conversation->title);
@@ -919,7 +1407,98 @@ class ChatController extends Controller
             ]
         );
 
-        $judul = \Illuminate\Support\Str::limit(trim($workDescription) ?: $projectName, 120, '');
+        $objektif = $this->extractAnswerForType($conversation, 'objective');
+        $harapan = $this->extractAnswerForType($conversation, 'expectation');
+        $deliverable = $this->extractAnswerForType($conversation, 'deliverable');
+        $detail = $this->extractAnswerForType($conversation, 'task_detail');
+        $progress = $this->extractAnswerForType($conversation, 'progress');
+        $estimasi = $this->extractAnswerForType($conversation, 'estimation');
+
+        // Format deskripsi dengan semua informasi dari chat
+        $deskripsiParts = [];
+        
+        if ($objektif) {
+            $deskripsiParts[] = "Objektif: {$objektif}";
+        }
+        
+        if ($harapan) {
+            $deskripsiParts[] = "Harapan: {$harapan}";
+        }
+        
+        if ($deliverable) {
+            $deskripsiParts[] = "Hasil kerja (deliverable): {$deliverable}";
+        }
+        
+        if ($detail) {
+            $deskripsiParts[] = "Detail: {$detail}";
+        }
+        
+        if ($progress) {
+            $deskripsiParts[] = "Progress: {$progress}";
+        }
+        
+        if ($estimasi) {
+            $deskripsiParts[] = "Estimasi: {$estimasi}";
+        }
+        
+        // Jika tidak ada informasi detail, gunakan work description
+        if (empty($deskripsiParts)) {
+            $deskripsi = $workDescription;
+        } else {
+            $deskripsi = implode("\n\n", $deskripsiParts);
+        }
+
+        // Log untuk debugging
+        \Log::info('ChatController::simpanKeTugas', [
+            'project_name' => $projectName,
+            'objektif' => $objektif,
+            'harapan' => $harapan,
+            'deliverable' => $deliverable,
+            'detail' => $detail,
+            'progress' => $progress,
+            'estimasi' => $estimasi,
+            'deskripsi_final' => $deskripsi,
+        ]);
+
+        // Prioritas 1: Cari task Planning yang sudah di-assign admin untuk user di proyek ini
+        // (task dengan status To Do atau In Progress yang belum selesai)
+        $plannedTask = Task::where('user_id', $user->id)
+            ->where('project_id', $project->id)
+            ->whereIn('status', [Task::STATUS_TO_DO, Task::STATUS_IN_PROGRESS])
+            ->orderBy('created_at', 'asc') // Ambil task paling lama (yang pertama di-assign)
+            ->first();
+
+        if ($plannedTask) {
+            // Update task yang sudah ada dari admin
+            $status = Task::STATUS_IN_PROGRESS;
+            if ($progress && preg_match('/100%|selesai/iu', $progress)) {
+                $status = Task::STATUS_DONE;
+            }
+
+            $progressPercentage = Task::extractProgressPercentage($progress);
+
+            $plannedTask->update([
+                'deskripsi' => $deskripsi,
+                'objektif' => $objektif,
+                'harapan' => $harapan,
+                'deliverable' => $deliverable,
+                'detail' => $detail,
+                'progress_text' => $progress,
+                'progress_percentage' => $progressPercentage,
+                'estimasi' => $estimasi,
+                'status' => $status,
+                'selesai_pada' => $status === Task::STATUS_DONE ? now() : $plannedTask->selesai_pada,
+            ]);
+
+            return;
+        }
+
+        // Prioritas 2: Jika tidak ada task Planning, buat task baru
+        $judul = \Illuminate\Support\Str::limit(
+            trim($workDescription) ?: $projectName,
+            120,
+            ''
+        );
 
         $sudahAda = Task::where('user_id', $user->id)
             ->where('project_id', $project->id)
@@ -930,9 +1509,18 @@ class ChatController extends Controller
             return;
         }
 
+        $progressPercentage = Task::extractProgressPercentage($progress);
+
         Task::create([
             'judul' => $judul,
-            'deskripsi' => $workDescription,
+            'deskripsi' => $deskripsi,
+            'objektif' => $objektif,
+            'harapan' => $harapan,
+            'deliverable' => $deliverable,
+            'detail' => $detail,
+            'progress_text' => $progress,
+            'progress_percentage' => $progressPercentage,
+            'estimasi' => $estimasi,
             'project_id' => $project->id,
             'user_id' => $user->id,
             'created_by' => $user->id,
@@ -1045,7 +1633,7 @@ class ChatController extends Controller
         $missingProjects = array_slice($projects, $projectCount ?: 0);
 
         foreach ($missingProjects as $project) {
-            $content = rtrim($content) . "\n\nProyek: {$project}\nObjektif:\nTarget:\nTask:\nEstimasi:";
+            $content = rtrim($content) . "\n\nProyek: {$project}\nObjektif:\nHarapan:\nHasil kerja (deliverable):\nTask:\nDetail/Progress:\nEstimasi:";
         }
 
         return $content;
@@ -1081,7 +1669,7 @@ class ChatController extends Controller
     /**
      * Generate smart conversation title from user's first message
      */
-    /** Jawaban langkah pertama yang berupa label pilihan, bukan nama proyek. */
+    /** Jawaban langkah pertama yang berupa label pilihan lama, bukan nama proyek. */
     private function labelPilihanAwal(?string $message): bool
     {
         $t = mb_strtolower(trim((string) $message));
@@ -1193,49 +1781,43 @@ class ChatController extends Controller
      */
     private function extractFieldFromHistory(Conversation $conversation, string $field): ?string
     {
-        // This is a placeholder - you can implement more sophisticated extraction
-        // based on metadata or conversation analysis
-        $messages = $conversation->messages()
-            ->where('sender_type', 'user')
-            ->orderBy('created_at', 'asc')
-            ->get();
-
-        // Look for field in message metadata if stored
-        foreach ($messages as $message) {
-            if (isset($message->metadata[$field])) {
-                return $message->metadata[$field];
-            }
-        }
-
-        return null;
+        return $this->extractAnswerForType($conversation, $field);
     }
 
     /**
-     * Handle "Lanjut Proyek Sebelumnya" selection
+     * Ambil jawaban user yang mengikuti pertanyaan AI dengan question_type tertentu.
      */
-    private function handleContinuePreviousProject(Conversation $conversation): \Illuminate\Http\JsonResponse
+    private function extractAnswerForType(Conversation $conversation, string $questionType): ?string
     {
-        // Sumbernya harus sama dengan dropdown proyek pada form Tugas Baru,
-        // yaitu tabel projects — bukan tabel pekerjaan lama, yang isinya berbeda.
-        $userId = auth()->id();
+        $messages = $conversation->messages()
+            ->orderBy('created_at')
+            ->get();
 
-        $milikSaya = Project::whereHas('tasks', fn ($q) => $q->where('user_id', $userId))
-            ->orderByDesc('updated_at')
-            ->limit(6)
-            ->pluck('nama');
+        $jawaban = null;
+        for ($i = 0; $i < $messages->count() - 1; $i++) {
+            $ai = $messages[$i];
+            $user = $messages[$i + 1];
+            if ($ai->sender_type !== 'ai' || $user->sender_type !== 'user') {
+                continue;
+            }
+            if (($ai->metadata['question_type'] ?? null) === $questionType) {
+                $jawaban = trim((string) $user->content);
+            }
+        }
 
-        // Belum punya tugas sama sekali: tawarkan proyek yang tersedia.
-        $previousProjects = ($milikSaya->isNotEmpty() ? $milikSaya : Project::orderBy('nama')->limit(6)->pluck('nama'))
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
+        return $jawaban !== null && $jawaban !== '' ? $jawaban : null;
+    }
 
-        if (empty($previousProjects)) {
-            // No previous projects found
-            $responseContent = 'Saya belum menemukan proyek sebelumnya. Mari mulai dengan proyek baru. Apa nama proyeknya?';
+    /**
+     * Tampilkan ulang dropdown proyek baku Planning.
+     */
+    private function tampilkanDaftarProyek(Conversation $conversation): \Illuminate\Http\JsonResponse
+    {
+        $opsi = self::opsiProyekPlanning(auth()->user());
 
-            $aiMessage = Message::create([
+        if ($opsi === []) {
+            $responseContent = 'Belum ada proyek baku di Planning. Minta admin menambahkan proyek terlebih dahulu.';
+            Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => 'ai',
                 'content' => $responseContent,
@@ -1243,6 +1825,7 @@ class ChatController extends Controller
                 'metadata' => [
                     'has_options' => false,
                     'question_type' => 'text_input',
+                    'allow_custom' => false,
                 ],
             ]);
 
@@ -1255,22 +1838,23 @@ class ChatController extends Controller
                     'has_options' => false,
                     'options' => [],
                     'question_type' => 'text_input',
+                    'allow_custom' => false,
                 ],
             ]);
         }
 
-        // Show previous projects as options
-        $responseContent = 'Baik, ini proyek-proyek Anda sebelumnya. Pilih salah satu:';
+        $responseContent = 'Baik. Pilih proyek Planning berikutnya yang sedang Anda kerjakan:';
 
-        $aiMessage = Message::create([
+        Message::create([
             'conversation_id' => $conversation->id,
             'sender_type' => 'ai',
             'content' => $responseContent,
             'step_number' => $conversation->current_step,
             'metadata' => [
                 'has_options' => true,
-                'options' => $previousProjects,
+                'options' => $opsi,
                 'question_type' => 'project_list',
+                'allow_custom' => false,
             ],
         ]);
 
@@ -1281,29 +1865,46 @@ class ChatController extends Controller
                 'content' => $responseContent,
                 'type' => 'question',
                 'has_options' => true,
-                'options' => $previousProjects,
+                'options' => $opsi,
                 'question_type' => 'project_list',
+                'allow_custom' => false,
             ],
         ]);
     }
 
     /**
-     * Handle "Proyek Baru" selection
+     * Handle pemilihan proyek dari daftar Planning.
      */
-    private function handleNewProject(Conversation $conversation): \Illuminate\Http\JsonResponse
+    private function handleSelectedPreviousProject(Conversation $conversation, string $projectName): \Illuminate\Http\JsonResponse
     {
-        // Ask for project name (text input, no options)
-        $responseContent = 'Baik, proyek baru. Apa nama proyeknya?';
+        $projectName = trim($projectName);
+        $user = auth()->user();
 
-        $aiMessage = Message::create([
+        $metadata = $conversation->metadata ?? [];
+        $metadata['project_name'] = $projectName;
+        $conversation->update([
+            'metadata' => $metadata,
+            'title' => $this->generateConversationTitle($projectName),
+        ]);
+
+        $plannedTasks = self::opsiTaskPlanning($user, $projectName);
+
+        // Objektif as-is: input bebas (bukan pilihan opsi)
+        $responseContent = "Baik, proyek {$projectName}. Apa yang sedang Anda kerjakan pada proyek ini? (objektif as-is)";
+
+        Message::create([
             'conversation_id' => $conversation->id,
             'sender_type' => 'ai',
             'content' => $responseContent,
             'step_number' => $conversation->current_step,
             'metadata' => [
                 'has_options' => false,
-                'question_type' => 'text_input',
-                'expects' => 'project_name',
+                'options' => [],
+                'question_type' => 'objective',
+                'expects' => 'objective_text',
+                'project_name' => $projectName,
+                'planned_tasks' => $plannedTasks,
+                'allow_custom' => true,
             ],
         ]);
 
@@ -1315,100 +1916,17 @@ class ChatController extends Controller
                 'type' => 'question',
                 'has_options' => false,
                 'options' => [],
-                'question_type' => 'text_input',
+                'question_type' => 'objective',
+                'allow_custom' => true,
             ],
         ]);
     }
 
     /**
-     * Handle project name input and generate objective options
+     * Kompatibilitas sesi lama: input nama proyek bebas.
      */
     private function handleProjectName(Conversation $conversation, string $projectName): \Illuminate\Http\JsonResponse
     {
-        $projectName = trim($projectName);
-
-        $metadata = $conversation->metadata ?? [];
-        $metadata['project_name'] = $projectName;
-        $conversation->update(['metadata' => $metadata]);
-
-        // Use OptionGenerator to get contextual objective options
-        $optionGenerator = app(\App\Services\Agent\OptionGenerator::class);
-        $objectiveOptions = $optionGenerator->generateOptions('objective', [
-            'project_name' => $projectName,
-        ]);
-
-        $responseContent = "Baik, proyek {$projectName}. Apa objektif utama proyek ini?";
-
-        $aiMessage = Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => 'ai',
-            'content' => $responseContent,
-            'step_number' => $conversation->current_step,
-            'metadata' => [
-                'has_options' => true,
-                'options' => $objectiveOptions,
-                'question_type' => 'objective',
-                'project_name' => $projectName,
-            ],
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Pesan berhasil dikirim',
-            'ai_response' => [
-                'content' => $responseContent,
-                'type' => 'question',
-                'has_options' => true,
-                'options' => $objectiveOptions,
-                'question_type' => 'objective',
-            ],
-        ]);
-    }
-
-    /**
-     * Handle selected previous project and ask for objective & expectation
-     */
-    private function handleSelectedPreviousProject(Conversation $conversation, string $projectName): \Illuminate\Http\JsonResponse
-    {
-        $projectName = trim($projectName);
-
-        // Store project name in conversation metadata
-        $metadata = $conversation->metadata ?? [];
-        $metadata['project_name'] = $projectName;
-        $conversation->update(['metadata' => $metadata]);
-
-        // Use OptionGenerator to get contextual objective options
-        $optionGenerator = app(\App\Services\Agent\OptionGenerator::class);
-        $objectiveOptions = $optionGenerator->generateOptions('objective', [
-            'project_name' => $projectName,
-        ]);
-
-        $responseContent = "Baik, lanjut proyek {$projectName}. Apa objektif utama proyek ini?";
-
-        $aiMessage = Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => 'ai',
-            'content' => $responseContent,
-            'step_number' => $conversation->current_step,
-            'metadata' => [
-                'has_options' => true,
-                'options' => $objectiveOptions,
-                'question_type' => 'objective',
-                'project_name' => $projectName,
-                'is_continued_project' => true,
-            ],
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Pesan berhasil dikirim',
-            'ai_response' => [
-                'content' => $responseContent,
-                'type' => 'question',
-                'has_options' => true,
-                'options' => $objectiveOptions,
-                'question_type' => 'objective',
-            ],
-        ]);
+        return $this->handleSelectedPreviousProject($conversation, $projectName);
     }
 }

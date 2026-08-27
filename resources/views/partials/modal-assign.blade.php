@@ -246,8 +246,16 @@ m.classList.add('open');document.body.style.overflow='hidden';
 /* Kiriman lewat fetch: halaman admin tetap di tempatnya. Kalau dibiarkan
    sebagai kiriman form biasa, PATCH /tasks/{id} akan mengalihkan ke halaman
    Pekerjaan Saya milik role user. */
+let sedangKirim = false;
 form.addEventListener('submit',async function(e){
 e.preventDefault();
+
+// Proteksi double submission
+if (sedangKirim) {
+    console.log('Form sedang diproses, abaikan submission ganda');
+    return;
+}
+
 const tombol=form.querySelector('[type="submit"]');
 const unggah=form.querySelector('input[type="file"][data-upload]');
 if(unggah&&unggah.inaaiUpload){
@@ -257,9 +265,14 @@ window.InaaiToast&&window.InaaiToast.galat(salah.map(x=>x.nama+' — '+x.pesan).
 return;
 }
 }
+
 const fd=new FormData(form);
 if(metode.disabled)fd.delete('_method');
+
+// Set flag dan disable tombol
+sedangKirim = true;
 tombol.disabled=true;
+
 try{
 const r=await fetch(form.getAttribute('action'),{
 method:'POST',
@@ -271,6 +284,7 @@ if(!r.ok){
 let pesan=d.message||'Gagal menyimpan tugas.';
 if(d.errors)pesan=Object.values(d.errors).flat().join(' ');
 window.InaaiToast&&window.InaaiToast.galat(pesan);
+sedangKirim = false;
 tombol.disabled=false;
 return;
 }
@@ -279,6 +293,7 @@ tutup();
 setTimeout(()=>location.reload(),650);
 }catch(err){
 window.InaaiToast&&window.InaaiToast.galat('Koneksi bermasalah: '+err.message);
+sedangKirim = false;
 tombol.disabled=false;
 }
 });

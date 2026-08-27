@@ -232,7 +232,7 @@ try{const v=localStorage.getItem(KUNCI);if(v==='kanban'||v==='tabel')awal=v}catc
 pakai(awal);
 sw.addEventListener('click',function(e){const b=e.target.closest('[data-view]');if(b)pakai(b.dataset.view)});
 
-document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat)));
+document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat,'report')));
 document.querySelectorAll('[data-ubah]').forEach(b=>b.addEventListener('click',()=>window.InaaiFormTugas.ubah(b.dataset.ubah)));
 document.querySelectorAll('[data-hapus]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.hapus(b.dataset.hapus,b.dataset.judul||'')));
 })();

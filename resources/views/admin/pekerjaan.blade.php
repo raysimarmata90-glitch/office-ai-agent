@@ -149,7 +149,7 @@ if(el){el.value='';if(el.inaaiSel&&el.inaaiSel.segarkan)el.inaaiSel.segarkan()}
 terapkan();
 });
 
-document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat)));
+document.querySelectorAll('[data-lihat]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.buka(b.dataset.lihat,'full')));
 document.querySelectorAll('[data-ubah]').forEach(b=>b.addEventListener('click',()=>window.InaaiFormTugas.ubah(b.dataset.ubah)));
 document.querySelectorAll('[data-hapus]').forEach(b=>b.addEventListener('click',()=>window.InaaiDrawerTugas.hapus(b.dataset.hapus,b.dataset.judul||'')));
 })();

@@ -192,7 +192,7 @@ terapkan();
 /* Kartu kanban dibuat setelah halaman jadi, jadi aksinya didelegasikan. */
 document.getElementById('kanbanDash').addEventListener('click',function(e){
 const lihat=e.target.closest('[data-lihat]');
-if(lihat)return window.InaaiDrawerTugas.buka(lihat.dataset.lihat);
+if(lihat)return window.InaaiDrawerTugas.buka(lihat.dataset.lihat,'report');
 const ubah=e.target.closest('[data-ubah]');
 if(ubah)return window.InaaiFormTugas.ubah(ubah.dataset.ubah);
 const hapus=e.target.closest('[data-hapus]');
